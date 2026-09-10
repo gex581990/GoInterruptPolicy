@@ -131,3 +131,85 @@ func TestInitSurvivesEmptyProcessorInformation(t *testing.T) {
 		t.Errorf("got %d processors and Threads %d, want none", len(cs.CPU), cs.Threads)
 	}
 }
+
+// A machine without SMT has one thread per core, not zero. Reporting zero left
+// every core group box without vertical margins.
+func TestInitCountsThreadsPerCore(t *testing.T) {
+	tests := []struct {
+		name  string
+		count int
+		fill  func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet)
+		want  int
+	}{
+		{
+			name:  "no SMT",
+			count: 8,
+			fill: func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet) {
+				c.LogicalProcessorIndex = byte(i)
+				c.CoreIndex = byte(i)
+			},
+			want: 1,
+		},
+		{
+			name:  "two threads per core",
+			count: 16,
+			fill: func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet) {
+				c.LogicalProcessorIndex = byte(i)
+				c.CoreIndex = byte(i / 2 * 2)
+			},
+			want: 2,
+		},
+		{
+			name:  "hybrid, SMT on the performance cores only",
+			count: 24,
+			fill: func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet) {
+				c.LogicalProcessorIndex = byte(i)
+				if i < 16 { // eight cores with two threads each
+					c.CoreIndex = byte(i / 2 * 2)
+					c.EfficiencyClass = 1
+				} else { // eight cores with one thread each
+					c.CoreIndex = byte(i)
+				}
+			},
+			want: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cs CpuSets
+			cs.initFrom(fakeCpuSets(tt.count, tt.fill))
+
+			if cs.MaxThreadsPerCore != tt.want {
+				t.Errorf("MaxThreadsPerCore = %d, want %d", cs.MaxThreadsPerCore, tt.want)
+			}
+		})
+	}
+}
+
+func TestCalculateMargins(t *testing.T) {
+	// Every core has the same number of threads, so no core box needs padding.
+	for _, threads := range []int{1, 2, 4} {
+		got := CalculateMargins(threads, threads)
+		if got.Top != 9 || got.Bottom != 9 || got.Left != 9 || got.Right != 9 {
+			t.Errorf("CalculateMargins(%d, %d) = %+v, want a plain 9 all round", threads, threads, got)
+		}
+	}
+
+	// A one thread core next to two thread cores is padded to match their
+	// height, so the extra has to land above and below rather than to the side.
+	padded := CalculateMargins(2, 1)
+	plain := CalculateMargins(2, 2)
+	if padded.Top+padded.Bottom <= plain.Top+plain.Bottom {
+		t.Errorf("a 1 thread core box got %d of vertical margin, a 2 thread one %d, want more for the smaller core",
+			padded.Top+padded.Bottom, plain.Top+plain.Bottom)
+	}
+	if padded.Left != 9 || padded.Right != 9 {
+		t.Errorf("CalculateMargins(2, 1) = %+v, want the side margins left alone", padded)
+	}
+
+	// Degenerate input must not divide by zero into a nonsense layout.
+	if got := CalculateMargins(2, 0); got.Top != 9 || got.Bottom != 9 {
+		t.Errorf("CalculateMargins(2, 0) = %+v, want a plain 9 all round", got)
+	}
+}

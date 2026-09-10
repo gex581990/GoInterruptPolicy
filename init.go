@@ -88,7 +88,6 @@ var InterruptTypeMap = map[Bits]string{
 	4: "MsiX",
 }
 
-var sysInfo SystemInfo
 var handle DevInfo
 
 const ZeroBit = Bits(0)
@@ -96,7 +95,6 @@ const ZeroBit = Bits(0)
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	sysInfo = GetSystemInfo()
 	CPUMap = make(map[Bits]string, maxProcessors)
 	CPUBits = make([]Bits, 0, maxProcessors)
 	for i := range maxProcessors {

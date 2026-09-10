@@ -138,8 +138,17 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 
 		cs.CoreLayout.add(int(cpu.NumaNodeIndex), int(cpu.LastLevelCacheIndex), int(cpu.EfficiencyClass), int(cpu.CoreIndex), int(cpu.LogicalProcessorIndex))
 
-		if cs.MaxThreadsPerCore < int(cpu.LogicalProcessorIndex-cpu.CoreIndex) {
-			cs.MaxThreadsPerCore = int(cpu.LogicalProcessorIndex-cpu.CoreIndex) + 1
+		// CoreIndex is the processor number of the first thread on the core, so
+		// the distance from it to the home processor says how far into the core
+		// this thread sits, and one past the widest of those is how many threads
+		// the fattest core has. Comparing the distance rather than the count
+		// used to leave this at 0 on a machine without SMT, which robbed every
+		// core box of its vertical margins. Both are bytes, so do not subtract
+		// them as bytes in case a core ever reports out of order.
+		if cpu.LogicalProcessorIndex >= cpu.CoreIndex {
+			if threads := int(cpu.LogicalProcessorIndex) - int(cpu.CoreIndex) + 1; cs.MaxThreadsPerCore < threads {
+				cs.MaxThreadsPerCore = threads
+			}
 		}
 
 		for len(ClassGroup) <= int(cpu.EfficiencyClass) {

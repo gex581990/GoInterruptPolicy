@@ -37,7 +37,8 @@ func NewComboBoxModel(names []string) []*ComboBoxUintStruct {
 }
 
 type CheckBoxList struct {
-	Widget    []Widget
+	// List holds the checkbox of every logical processor, indexed by its group
+	// relative processor number.
 	List      []*walk.CheckBox
 	CoreIndex int
 }
@@ -593,7 +594,7 @@ func (c *CheckBoxList) createCore(bits *Bits, coreIdx int, threads []int) Widget
 	return GroupBox{
 		Title: fmt.Sprintf("Core %d", coreIdx),
 		Layout: VBox{
-			Margins: CalculateMargins(len(threadWidgets)),
+			Margins: CalculateMargins(cs.MaxThreadsPerCore, len(threadWidgets)),
 		},
 		Children: threadWidgets,
 	}
@@ -839,22 +840,29 @@ func interruptType(b Bits) string {
 	return strings.Join(types, ", ")
 }
 
-func CalculateMargins(value int) Margins {
-	if cs.MaxThreadsPerCore == value {
+// CalculateMargins returns the margins of a core group box holding threads
+// checkboxes on a machine whose fattest core has maxThreadsPerCore of them.
+// A core with fewer threads than that gets extra padding above and below so
+// that every core box comes out the same height and the row of them lines up.
+// All values are 96 dpi units, walk scales them to the current dpi.
+func CalculateMargins(maxThreadsPerCore, threads int) Margins {
+	const margin = 9
+
+	if threads < 1 || maxThreadsPerCore == threads {
 		return Margins{
-			Left:   9,
-			Top:    9,
-			Right:  9,
-			Bottom: 9,
+			Left:   margin,
+			Top:    margin,
+			Right:  margin,
+			Bottom: margin,
 		}
-	} else {
-		part := (11.75 * float64(cs.MaxThreadsPerCore) / float64(value))
-		return Margins{
-			Left:   9,
-			Top:    int(math.Floor(part)),
-			Right:  9,
-			Bottom: int(math.Ceil(part)),
-		}
+	}
+
+	part := (11.75 * float64(maxThreadsPerCore) / float64(threads))
+	return Margins{
+		Left:   margin,
+		Top:    int(math.Floor(part)),
+		Right:  margin,
+		Bottom: int(math.Ceil(part)),
 	}
 }
 

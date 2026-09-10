@@ -33,10 +33,13 @@ func workArea(hwnd win.HWND) walk.Rectangle {
 	}
 }
 
-// capToSize limits size to available and reserves room for the scrollbar that
-// shows up on the axis which had to be capped, so it does not cover the
-// content. vScrollWidth and hScrollHeight are scrollbar thicknesses. An empty
-// available means no monitor was found, in which case size is left alone.
+// capToSize limits size to available. Capping an axis is what brings up the
+// scrollbar on the other one, and walk reserves no room for the scrollbars of a
+// ScrollView that can scroll both ways, so the bar eats into the viewport
+// instead. Adding its thickness leaves the content as much visible room as it
+// wanted. vScrollWidth and hScrollHeight are the scrollbar thicknesses. An
+// empty available means no monitor was found, in which case size is left
+// alone.
 func capToSize(size, available walk.Size, vScrollWidth, hScrollHeight int) walk.Size {
 	if available.Width <= 0 || available.Height <= 0 {
 		return size
