@@ -58,7 +58,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	var dlg *walk.Dialog
 	var db *walk.DataBinder
 	var acceptPB, cancelPB *walk.PushButton
-	var cpuArrayComView *walk.Composite
+	var cpuArrayComView, dialogBody *walk.Composite
 	var devicePolicyCB, devicePriorityCB, openRegistryCB, openDeviceManagerCB *walk.ComboBox
 	var MsiSupportedCB *walk.CheckBox
 	var deviceMessageNumberLimitNE *walk.NumberEdit
@@ -95,13 +95,12 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 		MaxMSILimit:           FindCommonValue(devices, 0, func(d Device) uint32 { return d.MaxMSILimit }),
 	}
 
-	returnCode, err := Dialog{
+	dialog := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
 		Icon:          2,
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
-		FixedSize:     true,
 		DataBinder: DataBinder{
 			AssignTo:       &db,
 			Name:           "device",
@@ -110,407 +109,411 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 		},
 		Layout: VBox{
 			MarginsZero: true,
-			Alignment:   AlignHFarVFar,
 		},
 		Children: []Widget{
-			Composite{
-				Layout: VBox{},
+			// Everything but the OK / Cancel row scrolls, so those two stay
+			// reachable no matter how many processors the machine has.
+			ScrollView{
+				Layout: VBox{MarginsZero: true},
 				Children: []Widget{
 					Composite{
-						Layout: Grid{
-							Columns: 2,
-						},
-						Children: []Widget{
-							Label{
-								Text: "Name:",
-							},
-							Label{
-								EllipsisMode: EllipsisEnd,
-								ToolTipText:  strings.Join(DeviceDesc, "\n"),
-								Text:         Bind("device.DeviceDesc == '' ? 'N/A' : device.DeviceDesc"),
-							},
-
-							Label{
-								Text: "Location Info:",
-							},
-							Label{
-								EllipsisMode: EllipsisEnd,
-								ToolTipText:  strings.Join(LocationInformation, "\n"),
-								Text:         Bind("device.LocationInformation == '' ? 'N/A' : device.LocationInformation"),
-							},
-
-							Label{
-								Text: "DevObj Name:",
-							},
-							Label{
-								EllipsisMode: EllipsisEnd,
-								ToolTipText:  strings.Join(DevObjName, "\n"),
-								Text:         Bind("device.DevObjName == '' ? 'N/A' : device.DevObjName"),
-							},
-							HSpacer{
-								ColumnSpan: 2,
-							},
-						},
-					},
-
-					GroupBox{
-						Title:   "Message Signaled-Based Interrupts",
-						Visible: device.MsiSupported != MSI_Invalid,
-						Layout:  Grid{Columns: 1},
-						Children: []Widget{
-
-							CheckBox{
-								AssignTo:       &MsiSupportedCB,
-								Name:           "MsiSupported",
-								Text:           "MSI Mode:",
-								TextOnLeftSide: true,
-								Tristate:       device.MsiSupported == MSI_Tristate,
-								Checked:        device.MsiSupported == MSI_On,
-								OnClicked: func() {
-									if MsiSupportedCB.Checked() {
-										device.MsiSupported = MSI_On
-										deviceMessageNumberLimitNE.SetEnabled(true)
-										device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
-									} else {
-										device.MsiSupported = MSI_Off
-										deviceMessageNumberLimitNE.SetEnabled(false)
-									}
-								},
-							},
-
-							Composite{
-								Layout: Grid{
-									Columns:     3,
-									MarginsZero: true,
-								},
-								Children: []Widget{
-									LinkLabel{
-										Text: `MSI Limit: <a href="https://forums.guru3d.com/threads/windows-line-based-vs-message-signaled-based-interrupts-msi-tool.378044/">?</a>`,
-										OnLinkActivated: func(link *walk.LinkLabelLink) {
-											// https://stackoverflow.com/a/12076082
-											exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", link.URL()).Start()
-										},
-									},
-									NumberEdit{
-										SpinButtonsVisible: true,
-										AssignTo:           &deviceMessageNumberLimitNE,
-										Enabled:            device.MsiSupported == MSI_On,
-										MinValue:           0,
-										MaxValue:           hasMsiX(device.InterruptTypeMap),
-										Value:              Bind("device.MessageNumberLimit < 1.0 ? 1.0 : device.MessageNumberLimit"),
-										OnValueChanged: func() {
-											device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
-										},
-									},
-								},
-							},
-
-							Label{
-								Text: "Interrupt Type: " + interruptType(device.InterruptTypeMap),
-							},
-
-							Label{
-								Text: Bind("device.MaxMSILimit == 0 ? '' : 'Max MSI Limit: ' + device.MaxMSILimit"),
-							},
-						},
-					},
-
-					GroupBox{
-						Title:  "Advanced Policies",
-						Layout: VBox{},
+						AssignTo: &dialogBody,
+						Layout:   VBox{},
 						Children: []Widget{
 							Composite{
 								Layout: Grid{
-									Columns:     2,
-									MarginsZero: true,
+									Columns: 2,
 								},
 								Children: []Widget{
-									LinkLabel{
-										Text: `Device Priority: <a href="https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/miniport/ne-miniport-_irq_priority">?</a>`,
-										OnLinkActivated: func(link *walk.LinkLabelLink) {
-											// https://stackoverflow.com/a/12076082
-											exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", link.URL()).Start()
+									Label{
+										Text: "Name:",
+									},
+									Label{
+										EllipsisMode: EllipsisEnd,
+										ToolTipText:  strings.Join(DeviceDesc, "\n"),
+										Text:         Bind("device.DeviceDesc == '' ? 'N/A' : device.DeviceDesc"),
+									},
+
+									Label{
+										Text: "Location Info:",
+									},
+									Label{
+										EllipsisMode: EllipsisEnd,
+										ToolTipText:  strings.Join(LocationInformation, "\n"),
+										Text:         Bind("device.LocationInformation == '' ? 'N/A' : device.LocationInformation"),
+									},
+
+									Label{
+										Text: "DevObj Name:",
+									},
+									Label{
+										EllipsisMode: EllipsisEnd,
+										ToolTipText:  strings.Join(DevObjName, "\n"),
+										Text:         Bind("device.DevObjName == '' ? 'N/A' : device.DevObjName"),
+									},
+									HSpacer{
+										ColumnSpan: 2,
+									},
+								},
+							},
+
+							GroupBox{
+								Title:   "Message Signaled-Based Interrupts",
+								Visible: device.MsiSupported != MSI_Invalid,
+								Layout:  Grid{Columns: 1},
+								Children: []Widget{
+
+									CheckBox{
+										AssignTo:       &MsiSupportedCB,
+										Name:           "MsiSupported",
+										Text:           "MSI Mode:",
+										TextOnLeftSide: true,
+										Tristate:       device.MsiSupported == MSI_Tristate,
+										Checked:        device.MsiSupported == MSI_On,
+										OnClicked: func() {
+											if MsiSupportedCB.Checked() {
+												device.MsiSupported = MSI_On
+												deviceMessageNumberLimitNE.SetEnabled(true)
+												device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
+											} else {
+												device.MsiSupported = MSI_Off
+												deviceMessageNumberLimitNE.SetEnabled(false)
+											}
 										},
+									},
+
+									Composite{
+										Layout: Grid{
+											Columns:     3,
+											MarginsZero: true,
+										},
+										Children: []Widget{
+											LinkLabel{
+												Text: `MSI Limit: <a href="https://forums.guru3d.com/threads/windows-line-based-vs-message-signaled-based-interrupts-msi-tool.378044/">?</a>`,
+												OnLinkActivated: func(link *walk.LinkLabelLink) {
+													// https://stackoverflow.com/a/12076082
+													exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", link.URL()).Start()
+												},
+											},
+											NumberEdit{
+												SpinButtonsVisible: true,
+												AssignTo:           &deviceMessageNumberLimitNE,
+												Enabled:            device.MsiSupported == MSI_On,
+												MinValue:           0,
+												MaxValue:           hasMsiX(device.InterruptTypeMap),
+												Value:              Bind("device.MessageNumberLimit < 1.0 ? 1.0 : device.MessageNumberLimit"),
+												OnValueChanged: func() {
+													device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
+												},
+											},
+										},
+									},
+
+									Label{
+										Text: "Interrupt Type: " + interruptType(device.InterruptTypeMap),
+									},
+
+									Label{
+										Text: Bind("device.MaxMSILimit == 0 ? '' : 'Max MSI Limit: ' + device.MaxMSILimit"),
+									},
+								},
+							},
+
+							GroupBox{
+								Title:  "Advanced Policies",
+								Layout: VBox{},
+								Children: []Widget{
+									Composite{
+										Layout: Grid{
+											Columns:     2,
+											MarginsZero: true,
+										},
+										Children: []Widget{
+											LinkLabel{
+												Text: `Device Priority: <a href="https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/miniport/ne-miniport-_irq_priority">?</a>`,
+												OnLinkActivated: func(link *walk.LinkLabelLink) {
+													// https://stackoverflow.com/a/12076082
+													exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", link.URL()).Start()
+												},
+											},
+											ComboBox{
+												AssignTo:      &devicePriorityCB,
+												Value:         device.DevicePriority,
+												BindingMember: "Enums",
+												DisplayMember: "Name",
+												Model:         NewComboBoxModel([]string{"Undefined", "Low", "Normal", "High"}),
+												OnCurrentIndexChanged: func() {
+													device.DevicePriority = uint32(devicePriorityCB.CurrentIndex())
+												},
+											},
+
+											LinkLabel{
+												Text: `Device Policy: <a href="https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/miniport/ne-miniport-_irq_device_policy">?</a>`,
+												OnLinkActivated: func(link *walk.LinkLabelLink) {
+													// https://stackoverflow.com/a/12076082
+													exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", link.URL()).Start()
+												},
+											},
+											ComboBox{
+												AssignTo:      &devicePolicyCB,
+												Value:         device.DevicePolicy,
+												BindingMember: "Enums",
+												DisplayMember: "Name",
+												Model: NewComboBoxModel([]string{
+													"IrqPolicyMachineDefault",
+													"IrqPolicyAllCloseProcessors",
+													"IrqPolicyOneCloseProcessor",
+													"IrqPolicyAllProcessorsInMachine",
+													"IrqPolicySpecifiedProcessors",
+													"IrqPolicySpreadMessagesAcrossAllProcessors",
+												}),
+												OnCurrentIndexChanged: func() {
+													currentIndex := uint32(devicePolicyCB.CurrentIndex())
+													if device.DevicePolicy == currentIndex {
+														return
+													}
+
+													device.DevicePolicy = currentIndex
+
+													// IrqPolicySpecifiedProcessors
+													cpuArrayComView.SetVisible(device.DevicePolicy == 4)
+
+													// The processor list is inside a ScrollView, so
+													// showing or hiding it does not change the layout
+													// minimum and walk leaves the dialog at its old
+													// size. Grow and shrink it here instead.
+													fitDialogToContent(dlg, dialogBody)
+												},
+											},
+										},
+									},
+
+									Composite{
+										AssignTo: &cpuArrayComView,
+										Layout:   VBox{MarginsZero: true},
+										Visible:  Bind("device.DevicePolicy == 4"), // IrqPolicySpecifiedProcessors
+										Children: []Widget{
+											Composite{
+												Layout: HBox{
+													Alignment:   AlignHCenterVNear,
+													MarginsZero: true,
+												},
+												Children: checkBoxList.create(&device.AssignmentSetOverride),
+											},
+											GroupBox{
+												Title:  "Presets for Specified Processors:",
+												Layout: HBox{},
+												Children: []Widget{
+													PushButton{
+														Text: "All On",
+														OnClicked: func() {
+															checkBoxList.allOn(&device.AssignmentSetOverride)
+														},
+													},
+
+													PushButton{
+														Text: "All Off",
+														OnClicked: func() {
+															checkBoxList.allOff(&device.AssignmentSetOverride)
+														},
+													},
+
+													PushButton{
+														Text:    "HT Off",
+														Visible: cs.HyperThreading,
+														OnClicked: func() {
+															checkBoxList.htOff(&device.AssignmentSetOverride)
+														},
+													},
+
+													PushButton{
+														Text:    "P-Core Only",
+														Visible: cs.EfficiencyClass,
+														OnClicked: func() {
+															checkBoxList.pCoreOnly(&device.AssignmentSetOverride)
+														},
+													},
+
+													PushButton{
+														Text:    "E-Core Only",
+														Visible: cs.EfficiencyClass,
+														OnClicked: func() {
+															checkBoxList.eCoreOnly(&device.AssignmentSetOverride)
+														},
+													},
+
+													PushButton{
+														Text:    checkBoxList.LastLevelCacheName(0),
+														Visible: cs.LastLevelCache,
+														OnClicked: func() {
+															checkBoxList.LLC(&device.AssignmentSetOverride, 0)
+														},
+													},
+
+													PushButton{
+														Text:    checkBoxList.LastLevelCacheName(1),
+														Visible: cs.LastLevelCache,
+														OnClicked: func() {
+															checkBoxList.LLC(&device.AssignmentSetOverride, 1)
+														},
+													},
+
+													HSpacer{},
+												},
+											},
+										},
+									},
+								},
+							},
+
+							GroupBox{
+								Title:  "Registry",
+								Layout: HBox{},
+
+								Children: []Widget{
+									PushButton{
+										Text:    "Open Device",
+										Visible: len(devices) == 1,
+										OnClicked: func() {
+											OpenRegistry(dlg.Form(), devices[0].reg)
+										},
+									},
+
+									Label{
+										Visible: len(devices) != 1,
+										Text:    "Open Device:",
 									},
 									ComboBox{
-										AssignTo:      &devicePriorityCB,
-										Value:         device.DevicePriority,
+										ToolTipText:   "Open Device",
+										AssignTo:      &openRegistryCB,
+										Visible:       len(devices) != 1,
 										BindingMember: "Enums",
 										DisplayMember: "Name",
-										Model:         NewComboBoxModel([]string{"Undefined", "Low", "Normal", "High"}),
+										Model:         ListDevices(devices),
 										OnCurrentIndexChanged: func() {
-											device.DevicePriority = uint32(devicePriorityCB.CurrentIndex())
+											i := openRegistryCB.CurrentIndex()
+											OpenRegistry(dlg, devices[i].reg)
 										},
 									},
 
-									LinkLabel{
-										Text: `Device Policy: <a href="https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/miniport/ne-miniport-_irq_device_policy">?</a>`,
-										OnLinkActivated: func(link *walk.LinkLabelLink) {
-											// https://stackoverflow.com/a/12076082
-											exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", link.URL()).Start()
-										},
-									},
-									ComboBox{
-										AssignTo:      &devicePolicyCB,
-										Value:         device.DevicePolicy,
-										BindingMember: "Enums",
-										DisplayMember: "Name",
-										Model: NewComboBoxModel([]string{
-											"IrqPolicyMachineDefault",
-											"IrqPolicyAllCloseProcessors",
-											"IrqPolicyOneCloseProcessor",
-											"IrqPolicyAllProcessorsInMachine",
-											"IrqPolicySpecifiedProcessors",
-											"IrqPolicySpreadMessagesAcrossAllProcessors",
-										}),
-										OnCurrentIndexChanged: func() {
-											currentIndex := uint32(devicePolicyCB.CurrentIndex())
-											if device.DevicePolicy == currentIndex {
-												return
+									PushButton{
+										Text: "Export current settings",
+										OnClicked: func() {
+											var reg_file_value strings.Builder
+
+											for i := range devices {
+												regPath, err := GetRegistryLocation(uintptr(devices[i].reg))
+												if err != nil {
+													walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
+												}
+
+												reg_file_value.WriteString(createRegFile(dlg, regPath, *device))
 											}
 
-											device.DevicePolicy = currentIndex
-											if device.DevicePolicy == 4 { // IrqPolicySpecifiedProcessors
-												cpuArrayComView.SetVisible(true)
-												return
-											}
-
-											cpuArrayComView.SetVisible(false)
-
-											if err := dlg.SetSize(walk.Size{Width: 0, Height: 0}); err != nil {
+											path, err := os.Getwd()
+											if err != nil {
 												log.Println(err)
 											}
 
+											// NOTE: The file name can be improved.
+											filePath, cancel, err := saveFileExplorer(dlg, path, strings.ReplaceAll(devices[0].DeviceDesc, " ", "_")+".reg", "Save current settings", "Registry File (*.reg)|*.reg")
+											if !cancel || err != nil {
+												file, err := os.Create(filePath)
+												if err != nil {
+													return
+												}
+												defer file.Close()
+
+												file.WriteString(REG_FILE_HEADER + reg_file_value.String())
+											}
 										},
 									},
+									HSpacer{},
 								},
 							},
 
-							Composite{
-								AssignTo: &cpuArrayComView,
-								Layout:   VBox{MarginsZero: true},
-								Visible:  Bind("device.DevicePolicy == 4"), // IrqPolicySpecifiedProcessors
+							GroupBox{
+								Title:  "Device Manager",
+								Layout: HBox{},
 								Children: []Widget{
-									Composite{
-										Layout: HBox{
-											Alignment:   AlignHCenterVNear,
-											MarginsZero: true,
-										},
-										Children: checkBoxList.create(&device.AssignmentSetOverride),
-									},
-									GroupBox{
-										Title:  "Presets for Specified Processors:",
-										Layout: HBox{},
-										Children: []Widget{
-											PushButton{
-												Text: "All On",
-												OnClicked: func() {
-													checkBoxList.allOn(&device.AssignmentSetOverride)
-												},
-											},
-
-											PushButton{
-												Text: "All Off",
-												OnClicked: func() {
-													checkBoxList.allOff(&device.AssignmentSetOverride)
-												},
-											},
-
-											PushButton{
-												Text:    "HT Off",
-												Visible: cs.HyperThreading,
-												OnClicked: func() {
-													checkBoxList.htOff(&device.AssignmentSetOverride)
-												},
-											},
-
-											PushButton{
-												Text:    "P-Core Only",
-												Visible: cs.EfficiencyClass,
-												OnClicked: func() {
-													checkBoxList.pCoreOnly(&device.AssignmentSetOverride)
-												},
-											},
-
-											PushButton{
-												Text:    "E-Core Only",
-												Visible: cs.EfficiencyClass,
-												OnClicked: func() {
-													checkBoxList.eCoreOnly(&device.AssignmentSetOverride)
-												},
-											},
-
-											PushButton{
-												Text:    checkBoxList.LastLevelCacheName(0),
-												Visible: cs.LastLevelCache,
-												OnClicked: func() {
-													checkBoxList.LLC(&device.AssignmentSetOverride, 0)
-												},
-											},
-
-											PushButton{
-												Text:    checkBoxList.LastLevelCacheName(1),
-												Visible: cs.LastLevelCache,
-												OnClicked: func() {
-													checkBoxList.LLC(&device.AssignmentSetOverride, 1)
-												},
-											},
-
-											HSpacer{},
+									PushButton{
+										Visible: len(devices) == 1,
+										Text:    "Open Device",
+										OnClicked: func() {
+											if id, err := devices[0].getInstanceID(); err == nil {
+												showDeviceProperties(dlg.Handle(), id)
+											}
 										},
 									},
+
+									Label{
+										Visible: len(devices) != 1,
+										Text:    "Open Device:",
+									},
+									ComboBox{
+										ToolTipText:   "Open Device",
+										AssignTo:      &openDeviceManagerCB,
+										Visible:       len(devices) != 1,
+										BindingMember: "Enums",
+										DisplayMember: "Name",
+										Model:         ListDevices(devices),
+										OnCurrentIndexChanged: func() {
+											i := openDeviceManagerCB.CurrentIndex()
+											if id, err := devices[i].getInstanceID(); err == nil {
+												showDeviceProperties(dlg.Handle(), id)
+											}
+										},
+									},
+
+									HSpacer{},
 								},
 							},
 						},
-					},
-
-					GroupBox{
-						Title:  "Registry",
-						Layout: HBox{},
-
-						Children: []Widget{
-							PushButton{
-								Text:    "Open Device",
-								Visible: len(devices) == 1,
-								OnClicked: func() {
-									OpenRegistry(dlg.Form(), devices[0].reg)
-								},
-							},
-
-							Label{
-								Visible: len(devices) != 1,
-								Text:    "Open Device:",
-							},
-							ComboBox{
-								ToolTipText:   "Open Device",
-								AssignTo:      &openRegistryCB,
-								Visible:       len(devices) != 1,
-								BindingMember: "Enums",
-								DisplayMember: "Name",
-								Model:         ListDevices(devices),
-								OnCurrentIndexChanged: func() {
-									i := openRegistryCB.CurrentIndex()
-									OpenRegistry(dlg, devices[i].reg)
-								},
-							},
-
-							PushButton{
-								Text: "Export current settings",
-								OnClicked: func() {
-									var reg_file_value strings.Builder
-
-									for i := range devices {
-										regPath, err := GetRegistryLocation(uintptr(devices[i].reg))
-										if err != nil {
-											walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
-										}
-
-										reg_file_value.WriteString(createRegFile(dlg, regPath, *device))
+						Functions: map[string]func(args ...any) (any, error){
+							"checkIrqPolicy": func(args ...any) (any, error) {
+								for _, v := range NewComboBoxModel([]string{"Undefined", "Low", "Normal", "High"}) {
+									if v.Enums == args[0].(uint32) {
+										return v.Name, nil
 									}
-
-									path, err := os.Getwd()
-									if err != nil {
-										log.Println(err)
-									}
-
-									// NOTE: The file name can be improved.
-									filePath, cancel, err := saveFileExplorer(dlg, path, strings.ReplaceAll(devices[0].DeviceDesc, " ", "_")+".reg", "Save current settings", "Registry File (*.reg)|*.reg")
-									if !cancel || err != nil {
-										file, err := os.Create(filePath)
-										if err != nil {
-											return
-										}
-										defer file.Close()
-
-										file.WriteString(REG_FILE_HEADER + reg_file_value.String())
-									}
-								},
+								}
+								return "", nil
 							},
-							HSpacer{},
+							"viewAsHex": func(args ...any) (any, error) {
+								if args[0].(Bits) == ZeroBit {
+									return "N/A", nil
+								}
+								bits := args[0].(Bits)
+								var result []string
+								for bit, cpu := range CPUMap {
+									if Has(bit, bits) {
+										result = append(result, cpu)
+									}
+								}
+								return strings.Join(result, ", "), nil
+							},
+							"eq": func(args ...any) (any, error) {
+								if len(args) != 2 {
+									return false, nil
+								}
+								switch v := args[0].(type) {
+								case float64:
+									if v == args[1].(float64) {
+										return true, nil
+									}
+								case Bits:
+									if v == Bits(args[1].(float64)) {
+										return true, nil
+									}
+								default:
+									log.Printf("I don't know about type %T!\n", v)
+								}
+
+								return false, nil
+							},
 						},
-					},
-
-					GroupBox{
-						Title:  "Device Manager",
-						Layout: HBox{},
-						Children: []Widget{
-							PushButton{
-								Visible: len(devices) == 1,
-								Text:    "Open Device",
-								OnClicked: func() {
-									if id, err := devices[0].getInstanceID(); err == nil {
-										showDeviceProperties(dlg.Handle(), id)
-									}
-								},
-							},
-
-							Label{
-								Visible: len(devices) != 1,
-								Text:    "Open Device:",
-							},
-							ComboBox{
-								ToolTipText:   "Open Device",
-								AssignTo:      &openDeviceManagerCB,
-								Visible:       len(devices) != 1,
-								BindingMember: "Enums",
-								DisplayMember: "Name",
-								Model:         ListDevices(devices),
-								OnCurrentIndexChanged: func() {
-									i := openDeviceManagerCB.CurrentIndex()
-									if id, err := devices[i].getInstanceID(); err == nil {
-										showDeviceProperties(dlg.Handle(), id)
-									}
-								},
-							},
-
-							HSpacer{},
-						},
-					},
-				},
-				Functions: map[string]func(args ...any) (any, error){
-					"checkIrqPolicy": func(args ...any) (any, error) {
-						for _, v := range NewComboBoxModel([]string{"Undefined", "Low", "Normal", "High"}) {
-							if v.Enums == args[0].(uint32) {
-								return v.Name, nil
-							}
-						}
-						return "", nil
-					},
-					"viewAsHex": func(args ...any) (any, error) {
-						if args[0].(Bits) == ZeroBit {
-							return "N/A", nil
-						}
-						bits := args[0].(Bits)
-						var result []string
-						for bit, cpu := range CPUMap {
-							if Has(bit, bits) {
-								result = append(result, cpu)
-							}
-						}
-						return strings.Join(result, ", "), nil
-					},
-					"eq": func(args ...any) (any, error) {
-						if len(args) != 2 {
-							return false, nil
-						}
-						switch v := args[0].(type) {
-						case float64:
-							if v == args[1].(float64) {
-								return true, nil
-							}
-						case Bits:
-							if v == Bits(args[1].(float64)) {
-								return true, nil
-							}
-						default:
-							log.Printf("I don't know about type %T!\n", v)
-						}
-
-						return false, nil
 					},
 				},
 			},
-			VSpacer{},
 			Composite{
 				Layout: HBox{},
 				Children: []Widget{
@@ -537,9 +540,17 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 				},
 			},
 		},
-	}.Run(owner)
+	}
 
-	return returnCode, *device, err
+	// Build and run the dialog in two steps instead of calling Run, so the
+	// wanted size is known before (*walk.Dialog).Show picks one.
+	if err := dialog.Create(owner); err != nil {
+		return 0, *device, err
+	}
+
+	startDialogAtContentSize(dlg, dialogBody, owner)
+
+	return dlg.Run(), *device, nil
 }
 
 func EffName(efficiencyClass int) string {
