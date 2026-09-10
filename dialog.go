@@ -58,7 +58,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	var dlg *walk.Dialog
 	var db *walk.DataBinder
 	var acceptPB, cancelPB *walk.PushButton
-	var cpuArrayComView, dialogBody *walk.Composite
+	var cpuArrayComView *walk.Composite
+	var dialogScroll *walk.ScrollView
 	var devicePolicyCB, devicePriorityCB, openRegistryCB, openDeviceManagerCB *walk.ComboBox
 	var MsiSupportedCB *walk.CheckBox
 	var deviceMessageNumberLimitNE *walk.NumberEdit
@@ -114,11 +115,14 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 			// Everything but the OK / Cancel row scrolls, so those two stay
 			// reachable no matter how many processors the machine has.
 			ScrollView{
-				Layout: VBox{MarginsZero: true},
+				AssignTo: &dialogScroll,
+				// One child, so the spacing would only ever pay for the trailing
+				// spacer walk appends to a box layout inside a ScrollView, and
+				// that would make the dialog a gap too short for its content.
+				Layout: VBox{MarginsZero: true, SpacingZero: true},
 				Children: []Widget{
 					Composite{
-						AssignTo: &dialogBody,
-						Layout:   VBox{},
+						Layout: VBox{},
 						Children: []Widget{
 							Composite{
 								Layout: Grid{
@@ -282,7 +286,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 													// showing or hiding it does not change the layout
 													// minimum and walk leaves the dialog at its old
 													// size. Grow and shrink it here instead.
-													fitDialogToContent(dlg, dialogBody)
+													fitDialogToContent(dlg, dialogScroll)
 												},
 											},
 										},
@@ -548,7 +552,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 		return 0, *device, err
 	}
 
-	startDialogAtContentSize(dlg, dialogBody, owner)
+	startDialogAtContentSize(dlg, dialogScroll, owner)
 
 	return dlg.Run(), *device, nil
 }

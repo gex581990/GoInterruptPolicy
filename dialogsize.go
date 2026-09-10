@@ -91,15 +91,17 @@ func clampInt(value, lo, hi int) int {
 	return value
 }
 
-// desiredDialogSize returns the outer size dlg needs to show body without
-// scrolling, capped to the work area of the monitor next to screen. Everything
-// is measured in native pixels, which keeps the result correct on any dpi.
-func desiredDialogSize(dlg *walk.Dialog, body walk.Widget, screen win.HWND) walk.Size {
-	// body lives inside a ScrollView, and a ScrollView with both scrollbars
-	// reports a minimum size of zero, so the layout minimum of the dialog
-	// covers everything except the scrolled content.
+// desiredDialogSize returns the outer size dlg needs to show the contents of
+// scroll without scrolling, capped to the work area of the monitor next to
+// screen. Everything is measured in native pixels, which keeps the result
+// correct on any dpi.
+func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWND) walk.Size {
+	// A ScrollView with both scrollbars reports a minimum size of zero, so the
+	// layout minimum of the dialog covers everything except the scrolled
+	// content. SizeHint gives what that content would need, measured on the
+	// ScrollView itself so the composite walk keeps inside it is included.
 	client := walk.CreateLayoutItemsForContainer(dlg).MinSize()
-	content := body.MinSizeHint()
+	content := scroll.SizeHint()
 
 	client.Height += content.Height
 	if content.Width > client.Width {
@@ -121,18 +123,18 @@ func desiredDialogSize(dlg *walk.Dialog, body walk.Widget, screen win.HWND) walk
 }
 
 // fitDialogToContent resizes dlg to the size its content asks for, capped to
-// the work area. Use it whenever widgets are shown or hidden at runtime: a
-// ScrollView hides those changes from the layout, so walk never resizes the
-// dialog on its own.
-func fitDialogToContent(dlg *walk.Dialog, body walk.Widget) {
-	if dlg == nil || body == nil {
+// the work area of the monitor dlg is on. Use it whenever widgets are shown or
+// hidden at runtime: a ScrollView hides those changes from the layout, so walk
+// never resizes the dialog on its own.
+func fitDialogToContent(dlg *walk.Dialog, scroll *walk.ScrollView) {
+	if dlg == nil || scroll == nil {
 		return
 	}
 
-	// MinSizeHint builds fresh layout items from the widget tree and Win32
-	// reports the window rectangle live, so measuring right after SetVisible
-	// works even though the layout itself only runs once the caller returns.
-	size := desiredDialogSize(dlg, body, dlg.Handle())
+	// SizeHint builds fresh layout items from the widget tree and Win32 reports
+	// the window rectangle live, so measuring right after SetVisible works even
+	// though the layout itself only runs once the caller returns.
+	size := desiredDialogSize(dlg, scroll, dlg.Handle())
 
 	if err := dlg.SetBoundsPixels(centerBounds(dlg.BoundsPixels(), size, workArea(dlg.Handle()))); err != nil {
 		log.Println(err)
@@ -140,16 +142,16 @@ func fitDialogToContent(dlg *walk.Dialog, body walk.Widget) {
 }
 
 // startDialogAtContentSize makes dlg open at the size its content needs instead
-// of at the layout minimum, which is only as tall as the button row once body
-// sits in a ScrollView.
+// of at the layout minimum, which is only as tall as the button row once the
+// body of the dialog sits in a ScrollView.
 //
 // (*walk.Dialog).Show derives the start size from maxSize(layout minimum,
 // minimum window size) and cannot be hooked, so the minimum is pinned to the
 // wanted size for the first layout and released again as soon as the dialog is
 // up. Releasing it matters: a minimum of the full content size would forbid
 // dragging the dialog any smaller.
-func startDialogAtContentSize(dlg *walk.Dialog, body walk.Widget, owner walk.Form) {
-	if dlg == nil || body == nil {
+func startDialogAtContentSize(dlg *walk.Dialog, scroll *walk.ScrollView, owner walk.Form) {
+	if dlg == nil || scroll == nil {
 		return
 	}
 
@@ -160,7 +162,7 @@ func startDialogAtContentSize(dlg *walk.Dialog, body walk.Widget, owner walk.For
 		screen = owner.Handle()
 	}
 
-	if err := dlg.SetMinMaxSizePixels(desiredDialogSize(dlg, body, screen), walk.Size{}); err != nil {
+	if err := dlg.SetMinMaxSizePixels(desiredDialogSize(dlg, scroll, screen), walk.Size{}); err != nil {
 		log.Println(err)
 		return
 	}
@@ -175,11 +177,11 @@ func startDialogAtContentSize(dlg *walk.Dialog, body walk.Widget, owner walk.For
 			log.Println(err)
 		}
 
-		// walk only re-positions a dialog that already fits, see fitRectToScreen
-		// in walk/dialog.go, so a dialog as tall as the work area can end up
-		// hanging over the top of the screen. Put it back.
-		if err := dlg.SetBoundsPixels(centerBounds(dlg.BoundsPixels(), dlg.SizePixels(), workArea(dlg.Handle()))); err != nil {
-			log.Println(err)
-		}
+		// walk placed the dialog with fitRectToScreen, which picks the monitor
+		// from the dialog window and not from the owner, and which only
+		// re-positions a dialog that already fits. So measure once more against
+		// the monitor the dialog really landed on and put it back into the work
+		// area. On a single monitor this is the size it already has.
+		fitDialogToContent(dlg, scroll)
 	})
 }
