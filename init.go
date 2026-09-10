@@ -67,8 +67,18 @@ const (
 
 type Bits uint64
 
+// maxProcessors is how many logical processors this tool can address. The
+// AssignmentSetOverride it writes to the registry is a single 64 bit KAFFINITY
+// affinity mask, and that mask covers processor group 0 only. Machines with
+// more processors than that need GROUP_AFFINITY, which is not implemented.
+const maxProcessors = 64
+
 var CPUMap map[Bits]string
 
+// CPUBits holds the affinity mask bit of every addressable logical processor,
+// indexed by its group relative processor number. It always has maxProcessors
+// entries, one per bit of the mask, so indexing it by a processor number that
+// the CPU set information reports is safe.
 var CPUBits []Bits
 var InterruptTypeMap = map[Bits]string{
 	0: "unknown",
@@ -87,13 +97,12 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	sysInfo = GetSystemInfo()
-	CPUMap = make(map[Bits]string, sysInfo.NumberOfProcessors)
-	var index Bits = 1
-	for i := 0; i < int(sysInfo.NumberOfProcessors); i++ {
-		indexString := strconv.Itoa(i)
-		CPUMap[index] = indexString
+	CPUMap = make(map[Bits]string, maxProcessors)
+	CPUBits = make([]Bits, 0, maxProcessors)
+	for i := range maxProcessors {
+		index := Bits(1) << i
+		CPUMap[index] = strconv.Itoa(i)
 		CPUBits = append(CPUBits, index)
-		index *= 2
 	}
 }
 

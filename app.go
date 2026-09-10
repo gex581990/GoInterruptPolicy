@@ -48,6 +48,10 @@ func main() {
 					log.Println(err)
 					continue
 				}
+				if i < 0 || i >= len(CPUBits) {
+					log.Printf("-cpu %d is outside the %d processors an affinity mask can address", i, len(CPUBits))
+					continue
+				}
 				assignmentSetOverride = Set(assignmentSetOverride, CPUBits[i])
 			}
 		}

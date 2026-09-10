@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"sort"
 )
 
@@ -15,13 +16,17 @@ const (
 
 type CpuSets struct {
 	MaxThreadsPerCore int
-	CPU               []CpuSet
-	CoreGroups        []CoreGroups
-	CoreLayout        *CoreLayout
-	HyperThreading    bool
-	NumaNode          bool // A group-relative value indicating which NUMA node a CPU Set is on. All CPU Sets in a given group that are on the same NUMA node will have the same value for this field.
-	LastLevelCache    bool // A group-relative value indicating which CPU Sets share at least one level of cache with each other. This value is the same for all CPU Sets in a group that are on processors that share cache with each other.
-	EfficiencyClass   bool // A value indicating the intrinsic energy efficiency of a processor for systems that support heterogeneous processors (such as ARM big.LITTLE systems). CPU Sets with higher numerical values of this field have home processors that are faster but less power-efficient than ones with lower values.
+	// Threads is one past the highest addressable logical processor number, so
+	// it is the length of every per processor slice the dialog indexes by that
+	// number. It is not the number of processors when the numbering has gaps.
+	Threads         int
+	CPU             []CpuSet
+	CoreGroups      []CoreGroups
+	CoreLayout      *CoreLayout
+	HyperThreading  bool
+	NumaNode        bool // A group-relative value indicating which NUMA node a CPU Set is on. All CPU Sets in a given group that are on the same NUMA node will have the same value for this field.
+	LastLevelCache  bool // A group-relative value indicating which CPU Sets share at least one level of cache with each other. This value is the same for all CPU Sets in a group that are on processors that share cache with each other.
+	EfficiencyClass bool // A value indicating the intrinsic energy efficiency of a processor for systems that support heterogeneous processors (such as ARM big.LITTLE systems). CPU Sets with higher numerical values of this field have home processors that are faster but less power-efficient than ones with lower values.
 }
 
 type CpuSet struct {
@@ -85,14 +90,41 @@ func (item *CoreLayout) add(numa, ccd, effClass, core, thread int) {
 }
 
 func (cs *CpuSets) Init() {
-	SystemCpuSets = GetCpuInformation()
+	cs.initFrom(GetCpuInformation())
+}
+
+// initFrom is Init with the processor information passed in, so the topologies
+// this has to cope with can be exercised by a test.
+func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
+	SystemCpuSets = systemCpuSets
 
 	cs.CoreLayout = new(CoreLayout)
 
+	if len(SystemCpuSets) == 0 || SystemCpuSets[0].Size == 0 {
+		log.Println("no processor information available")
+		return
+	}
+
 	var ClassGroup = []int{}
 	var lastEfficiencyClass, lastLevelCache, lastNumaNodeIndex byte
+	var skipped int
 	for i := 0; i < int(uint32(len(SystemCpuSets))/SystemCpuSets[0].Size); i++ {
 		cpu := SystemCpuSets[i].CpuSet()
+
+		// A 64 bit affinity mask reaches processor group 0 and nothing else, so
+		// leave the rest out rather than offer a checkbox that cannot be written
+		// to the registry. LogicalProcessorIndex is group relative and therefore
+		// below maxProcessors on every sane machine, but it indexes CPUBits and
+		// the checkbox list, so do not take that on trust.
+		if cpu.Group != 0 || int(cpu.LogicalProcessorIndex) >= maxProcessors {
+			skipped++
+			continue
+		}
+
+		if int(cpu.LogicalProcessorIndex) >= cs.Threads {
+			cs.Threads = int(cpu.LogicalProcessorIndex) + 1
+		}
+
 		cs.CPU = append(cs.CPU, CpuSet{
 			Id:                    cpu.Id,
 			CoreIndex:             cpu.CoreIndex,
@@ -130,6 +162,10 @@ func (cs *CpuSets) Init() {
 		if !cs.NumaNode && lastNumaNodeIndex != cpu.NumaNodeIndex {
 			cs.NumaNode = true
 		}
+	}
+
+	if skipped != 0 {
+		log.Printf("%d logical processors are outside processor group 0 and cannot be addressed by a 64 bit affinity mask, they are not shown", skipped)
 	}
 
 	sort.Slice(cs.CPU, func(i, j int) bool {

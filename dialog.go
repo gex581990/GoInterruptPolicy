@@ -657,7 +657,10 @@ func (c *CheckBoxList) createCCD(bits *Bits, ccdIdx, ccdLen int, ccd CcdItem) Wi
 }
 
 func (checkboxlist *CheckBoxList) create(bits *Bits) []Widget {
-	checkboxlist.List = make([]*walk.CheckBox, len(cs.CPU))
+	// Indexed by logical processor number, which is what createThreads and the
+	// preset buttons look up, so it has to be as long as the highest number and
+	// not as long as the processor count.
+	checkboxlist.List = make([]*walk.CheckBox, cs.Threads)
 	var partNUMA []Widget
 	for numaIdx, numa := range cs.CoreLayout.Numa {
 		var partCache []Widget
@@ -687,13 +690,21 @@ func (checkboxlist *CheckBoxList) create(bits *Bits) []Widget {
 }
 
 func (checkboxlist *CheckBoxList) allOn(bits *Bits) {
-	for i := 0; i < len(checkboxlist.List); i++ {
+	for i := range checkboxlist.List {
+		// A processor number the CPU set information never reported has no
+		// checkbox, so do not claim it in the mask either.
+		if checkboxlist.List[i] == nil {
+			continue
+		}
 		*bits = Set(CPUBits[i], *bits)
 		checkboxlist.List[i].SetChecked(true)
 	}
 }
 func (checkboxlist *CheckBoxList) allOff(bits *Bits) {
-	for i := 0; i < len(checkboxlist.List); i++ {
+	for i := range checkboxlist.List {
+		if checkboxlist.List[i] == nil {
+			continue
+		}
 		checkboxlist.List[i].SetChecked(false)
 	}
 	*bits = Bits(0)
