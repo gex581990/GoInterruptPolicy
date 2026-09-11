@@ -300,7 +300,11 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 										Children: []Widget{
 											Composite{
 												Layout: HBox{
-													Alignment:   AlignHCenterVNear,
+													// The core boxes keep their natural size, so
+													// line them up with the left edge of every
+													// other section instead of floating them in
+													// the middle of a window the user widened.
+													Alignment:   AlignHNearVNear,
 													MarginsZero: true,
 												},
 												Children: checkBoxList.create(&device.AssignmentSetOverride),
