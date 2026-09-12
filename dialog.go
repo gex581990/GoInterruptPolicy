@@ -307,15 +307,14 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 												Layout:   VBox{MarginsZero: true},
 												Visible:  Bind("device.DevicePolicy == 4"), // IrqPolicySpecifiedProcessors
 												Children: []Widget{
-													// Windows keeps this as one KAFFINITY, which reaches a
-													// single processor group, and the registry has no value for
-													// saying which. Anything past group 0 is unreachable, so say
-													// so rather than quietly show a subset of the machine.
+													// On a machine of more than one processor group, say why
+													// the list stops at group 0. It is where an ordinary
+													// device's interrupts are delivered, so this is a note
+													// about the machine and not a warning.
 													Label{
 														Visible:     cs.Skipped != 0,
-														TextColor:   walk.RGB(0xA0, 0x20, 0x00),
-														Text:        skippedProcessorsText(),
-														ToolTipText: "Windows keeps this setting as a single 64 bit group affinity mask and offers no registry value for the group number, so only group 0 can be addressed.",
+														Text:        otherGroupsText(),
+														ToolTipText: "Only a group aware driver can put a device's interrupts in another processor group, and it does that for itself. The Affinity Policy registry key holds a single group mask and has no value for a group number.",
 													},
 
 													Composite{

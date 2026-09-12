@@ -201,14 +201,19 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 	}
 }
 
-// skippedProcessorsText explains, for the dialog, why the processor list is
-// shorter than the machine. It is empty when everything is reachable.
-func skippedProcessorsText() string {
+// otherGroupsText explains, for the dialog, why the processor list is shorter
+// than the machine. It is empty on a machine of a single processor group.
+//
+// Nothing is being withheld here. Windows delivers a device's interrupts to
+// group 0 unless the driver itself asks for another group, so group 0 is where
+// the interrupts of an ordinary device are, and the mask in the registry
+// addresses exactly that group.
+func otherGroupsText() string {
 	if cs.Skipped == 0 {
 		return ""
 	}
 
 	return fmt.Sprintf(
-		"This machine has %d processor groups. Only group 0 is listed: the affinity mask Windows stores holds one group, so the other %d processors cannot be selected.",
+		"Windows delivers device interrupts to processor group 0 unless the driver asks for another group, and this setting is a mask over that one group. This machine has %d groups, so its other %d processors are not listed.",
 		cs.Groups, cs.Skipped)
 }
