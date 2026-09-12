@@ -118,11 +118,9 @@ func pinContentWidth(body *walk.Composite) {
 	}
 }
 
-// desiredDialogSize returns the outer size dlg needs to show the contents of
-// scroll without scrolling, capped to the work area of the monitor next to
-// screen. Everything is measured in native pixels, which keeps the result
-// correct on any dpi.
-func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWND) walk.Size {
+// contentDialogSize returns the outer size dlg would need to show everything
+// without scrolling, with no cap applied. Native pixels throughout.
+func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {
 	// A ScrollView with both scrollbars reports a minimum size of zero, so the
 	// layout minimum of the dialog covers everything except the scrolled
 	// content. SizeHint gives what that content would need, measured on the
@@ -137,14 +135,21 @@ func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWN
 
 	// Add the window decorations to turn the client size into an outer size.
 	outer, inner := dlg.SizePixels(), dlg.ClientBoundsPixels().Size()
-	size := walk.Size{
+
+	return walk.Size{
 		Width:  client.Width + outer.Width - inner.Width,
 		Height: client.Height + outer.Height - inner.Height,
 	}
+}
 
+// desiredDialogSize returns the outer size dlg needs to show the contents of
+// scroll without scrolling, capped to the work area of the monitor next to
+// screen. Everything is measured in native pixels, which keeps the result
+// correct on any dpi.
+func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWND) walk.Size {
 	dpi := uint32(dlg.DPI())
 
-	return capToSize(size, workArea(screen).Size(),
+	return capToSize(contentDialogSize(dlg, scroll), workArea(screen).Size(),
 		int(win.GetSystemMetricsForDpi(win.SM_CXVSCROLL, dpi)),
 		int(win.GetSystemMetricsForDpi(win.SM_CYHSCROLL, dpi)))
 }

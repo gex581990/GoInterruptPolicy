@@ -41,6 +41,31 @@ type CheckBoxList struct {
 	// relative processor number.
 	List      []*walk.CheckBox
 	CoreIndex int
+	// grids holds the composites whose grid layout carries the core boxes. The
+	// declarative builder fills these in, which is why they are pointers to
+	// pointers, and reflowCoreGrids changes how many columns each one uses.
+	grids []**walk.Composite
+}
+
+// newGrid hands the builder somewhere to record a grid composite and keeps the
+// handle so the columns can be changed later.
+func (c *CheckBoxList) newGrid() **walk.Composite {
+	holder := new(*walk.Composite)
+	c.grids = append(c.grids, holder)
+
+	return holder
+}
+
+// Grids returns the grid composites the builder actually created.
+func (c *CheckBoxList) Grids() []*walk.Composite {
+	out := make([]*walk.Composite, 0, len(c.grids))
+	for _, holder := range c.grids {
+		if *holder != nil {
+			out = append(out, *holder)
+		}
+	}
+
+	return out
 }
 
 func ListDevices(devices []Device) []*ComboBoxIntStruct {
@@ -295,6 +320,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 															// showing or hiding it does not change the layout
 															// minimum and walk leaves the dialog at its old
 															// size. Grow and shrink it here instead.
+															packCoreGrids(dlg, dialogScroll, dialogBody, checkBoxList.Grids(), workArea(dlg.Handle()).Size())
 															pinContentWidth(dialogBody)
 															fitDialogToContent(dlg, dialogScroll)
 														},
@@ -637,23 +663,26 @@ func (c *CheckBoxList) createEffClass(bits *Bits, effIdx, effLen int, cores [][]
 		c.CoreIndex++
 	}
 
-	if effLen == 1 {
-		return Composite{
-			Layout: Grid{
-				Alignment:   AlignHCenterVCenter,
-				MarginsZero: true,
-				Columns:     mathCeilInInt(len(coreWidgets), cs.CoreGroups[effIdx].Rows),
-			},
-			Children: coreWidgets,
-		}
-	}
-
-	return GroupBox{
-		Title: EffName(effIdx),
+	grid := Composite{
+		AssignTo: c.newGrid(),
 		Layout: Grid{
-			Columns: mathCeilInInt(len(coreWidgets), cs.CoreGroups[effIdx].Rows),
+			Alignment:   AlignHCenterVCenter,
+			MarginsZero: true,
+			Columns:     mathCeilInInt(len(coreWidgets), cs.CoreGroups[effIdx].Rows),
 		},
 		Children: coreWidgets,
+	}
+
+	if effLen == 1 {
+		return grid
+	}
+
+	// Keep the grid on a composite of its own even here, so that every grid
+	// reflowCoreGrids has to reshape is the same kind of thing.
+	return GroupBox{
+		Title:    EffName(effIdx),
+		Layout:   VBox{MarginsZero: true},
+		Children: []Widget{grid},
 	}
 }
 
