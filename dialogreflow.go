@@ -155,10 +155,54 @@ func largestThatFits(smallest, largest, start, most, maxWidth, maxHeight int, me
 	return best, columns
 }
 
+// gridMove is one box being given a cell.
+type gridMove struct {
+	box  int
+	x, y int
+}
+
+// gridMoves is the sequence of cells to give count boxes so that they end up
+// laid out over the given number of columns, whatever they were laid out over
+// before.
+//
+// It has to be a sequence rather than just a mapping because of how walk moves
+// a widget between cells: it empties the cell the widget is recorded in and
+// then fills the new one, and it does not check that the cell it empties still
+// holds that widget. Move each box straight to where it belongs and that
+// emptying wipes boxes that have already been moved. Laying eight boxes that
+// were over six columns out over three, the fourth box is put in the cell the
+// seventh is still recorded as being in, so moving the seventh empties it
+// again: the fourth and fifth boxes end up in no cell at all.
+//
+// A box in no cell is not laid out. It is not drawn, and it is not measured
+// either, so the grid is reported shorter than it is and the dialog is then
+// sized to that wrong answer. Which boxes are lost depends on what the grid
+// was laid out over before, so the same window could come out differently
+// depending on the sizes it had been dragged through to get there.
+//
+// So every box is parked in a row of its own first and moved to where it
+// belongs afterwards. No box's parking space is ever another box's old cell,
+// and no box's final cell is ever another box's parking space, so neither pass
+// can empty a cell that is holding something.
+func gridMoves(count, columns int) []gridMove {
+	if count < 1 || columns < 1 {
+		return nil
+	}
+
+	moves := make([]gridMove, 0, count*2)
+	for i := 0; i < count; i++ {
+		moves = append(moves, gridMove{box: i, x: i, y: 0})
+	}
+	for i := 0; i < count; i++ {
+		moves = append(moves, gridMove{box: i, x: i % columns, y: i / columns})
+	}
+
+	return moves
+}
+
 // setGridColumns lays the children of a grid composite out over the given
-// number of columns. walk builds a grid by giving every child a cell, and
-// SetRange moves a child to another one, so the boxes themselves are untouched
-// and keep whatever the user has ticked.
+// number of columns. The boxes themselves are untouched and keep whatever the
+// user has ticked.
 func setGridColumns(grid *walk.Composite, columns int) {
 	if grid == nil || columns < 1 {
 		return
@@ -170,9 +214,9 @@ func setGridColumns(grid *walk.Composite, columns int) {
 	}
 
 	children := grid.Children()
-	for i := 0; i < children.Len(); i++ {
-		cell := walk.Rectangle{X: i % columns, Y: i / columns, Width: 1, Height: 1}
-		if err := layout.SetRange(children.At(i), cell); err != nil {
+	for _, move := range gridMoves(children.Len(), columns) {
+		cell := walk.Rectangle{X: move.x, Y: move.y, Width: 1, Height: 1}
+		if err := layout.SetRange(children.At(move.box), cell); err != nil {
 			log.Println(err)
 			return
 		}
@@ -316,8 +360,38 @@ func (c coreGrids) measure(points, columns int) (width, height int) {
 	size := contentDialogSize(c.dlg, c.scroll)
 	c.sizes[shape] = size
 	logf("    try %2dpt over %2d columns -> content %s", points, columns, logSize(size))
+	c.checkMonotonic(shape, size)
 
 	return size.Width, size.Height
+}
+
+// checkMonotonic says so in the log when a measurement cannot be right.
+//
+// Adding a column never makes the content taller and never makes it narrower,
+// and both searches rely on that. A measurement that breaks the rule means the
+// widget tree is not in the shape it was asked to be in, and a dialog sized
+// from a measurement of the wrong tree is the sort of fault that shows up as
+// the same window coming out differently depending on the sizes it was dragged
+// through to get there. It is far easier to find with the rule written down
+// than by looking at the result.
+func (c coreGrids) checkMonotonic(shape dialogShape, size walk.Size) {
+	if !logging {
+		return
+	}
+
+	narrower := shape
+	narrower.columns--
+	if was, ok := c.sizes[narrower]; ok && (was.Height < size.Height || was.Width > size.Width) {
+		logf("    !! %d columns measured %s but %d measured %s, which cannot both be right",
+			shape.columns, logSize(size), narrower.columns, logSize(was))
+	}
+
+	wider := shape
+	wider.columns++
+	if was, ok := c.sizes[wider]; ok && (was.Height > size.Height || was.Width < size.Width) {
+		logf("    !! %d columns measured %s but %d measured %s, which cannot both be right",
+			shape.columns, logSize(size), wider.columns, logSize(was))
+	}
 }
 
 // fitDialogContent draws the dialog as large as it can be while still fitting

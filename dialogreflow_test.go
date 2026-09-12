@@ -253,3 +253,138 @@ func TestTheSearchStaysCheap(t *testing.T) {
 	}
 	t.Logf("%d measurements", calls)
 }
+
+// walkGrid models how walk moves a widget between cells: it empties the cell
+// the widget is recorded in and then fills the new one, without checking that
+// the cell it empties still holds that widget. A box whose cell was emptied by
+// another box's move is in no cell at all, and a box in no cell is neither
+// drawn nor measured.
+type walkGrid struct {
+	cell map[int][2]int // box -> the cell it is recorded in
+	at   map[[2]int]int // cell -> the box laid out in it
+}
+
+func newWalkGrid() *walkGrid {
+	return &walkGrid{cell: map[int][2]int{}, at: map[[2]int]int{}}
+}
+
+func (g *walkGrid) clone() *walkGrid {
+	out := newWalkGrid()
+	for k, v := range g.cell {
+		out.cell[k] = v
+	}
+	for k, v := range g.at {
+		out.at[k] = v
+	}
+
+	return out
+}
+
+func (g *walkGrid) run(moves []gridMove) {
+	for _, move := range moves {
+		if old, ok := g.cell[move.box]; ok {
+			delete(g.at, old)
+		}
+
+		cell := [2]int{move.x, move.y}
+		g.cell[move.box] = cell
+		g.at[cell] = move.box
+	}
+}
+
+// laidOut is where each box ended up, leaving out any that were lost.
+func (g *walkGrid) laidOut() map[int][2]int {
+	out := map[int][2]int{}
+	for cell, box := range g.at {
+		out[box] = cell
+	}
+
+	return out
+}
+
+// The bug this is all here for. Eight core boxes laid out over six columns and
+// then over three, which is a pair of shapes the dialog really used, loses two
+// of them if each box is moved straight to where it belongs.
+func TestMovingBoxesStraightToTheirCellLosesThem(t *testing.T) {
+	straight := func(count, columns int) []gridMove {
+		moves := make([]gridMove, 0, count)
+		for i := 0; i < count; i++ {
+			moves = append(moves, gridMove{box: i, x: i % columns, y: i / columns})
+		}
+
+		return moves
+	}
+
+	grid := newWalkGrid()
+	grid.run(straight(8, 6))
+	grid.run(straight(8, 3))
+
+	lost := []int{}
+	for box := 0; box < 8; box++ {
+		if _, ok := grid.laidOut()[box]; !ok {
+			lost = append(lost, box)
+		}
+	}
+
+	if len(lost) != 2 || lost[0] != 3 || lost[1] != 4 {
+		t.Fatalf("boxes %v were lost, want the 3 and 4 that the reported layout was missing", lost)
+	}
+}
+
+// Every box has to end up in the cell it belongs in, from every shape to every
+// other shape. A box lost on the way is a box that is neither drawn nor
+// measured, and a grid measured with a hole in it is what made the same window
+// size come out differently depending on the sizes it had been dragged
+// through.
+func TestGridMovesNeverLoseABox(t *testing.T) {
+	for _, count := range []int{1, 2, 3, 5, 8, 12, 16, 32, 64} {
+		for from := 1; from <= count; from++ {
+			start := newWalkGrid()
+			start.run(gridMoves(count, from))
+
+			for to := 1; to <= count; to++ {
+				grid := start.clone()
+				grid.run(gridMoves(count, to))
+
+				laidOut := grid.laidOut()
+				if len(laidOut) != count {
+					t.Fatalf("%d boxes over %d columns laid out over %d: %d of them are in a cell",
+						count, from, to, len(laidOut))
+				}
+
+				for box := 0; box < count; box++ {
+					want := [2]int{box % to, box / to}
+					if got := laidOut[box]; got != want {
+						t.Fatalf("%d boxes over %d columns laid out over %d: box %d is at %v, want %v",
+							count, from, to, box, got, want)
+					}
+				}
+			}
+		}
+	}
+}
+
+// A freshly built grid has nothing in any cell yet, which is the one case the
+// parking pass has nothing to protect against and still has to get right.
+func TestGridMovesLayOutAFreshGrid(t *testing.T) {
+	for _, columns := range []int{1, 3, 5, 8} {
+		grid := newWalkGrid()
+		grid.run(gridMoves(8, columns))
+
+		for box := 0; box < 8; box++ {
+			want := [2]int{box % columns, box / columns}
+			if got := grid.laidOut()[box]; got != want {
+				t.Errorf("over %d columns box %d is at %v, want %v", columns, box, got, want)
+			}
+		}
+	}
+}
+
+func TestGridMovesOfNothing(t *testing.T) {
+	if got := gridMoves(0, 3); got != nil {
+		t.Errorf("gridMoves(0, 3) = %v, want no moves", got)
+	}
+	if got := gridMoves(8, 0); got != nil {
+		t.Errorf("gridMoves(8, 0) = %v, want no moves", got)
+	}
+}
