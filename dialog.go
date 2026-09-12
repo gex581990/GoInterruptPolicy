@@ -86,6 +86,10 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	var acceptPB, cancelPB *walk.PushButton
 	var cpuArrayComView, dialogBody *walk.Composite
 	var dialogScroll *walk.ScrollView
+	// The number of columns the cores are packed onto when the dialog opens.
+	// Resizing never goes beyond it, so narrowing the window folds the cores up
+	// and widening it unfolds them back to exactly the shape they started at.
+	var packedColumns int
 	var devicePolicyCB, devicePriorityCB, openRegistryCB, openDeviceManagerCB *walk.ComboBox
 	var MsiSupportedCB *walk.CheckBox
 	var deviceMessageNumberLimitNE *walk.NumberEdit
@@ -320,7 +324,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 															// showing or hiding it does not change the layout
 															// minimum and walk leaves the dialog at its old
 															// size. Grow and shrink it here instead.
-															packCoreGrids(dlg, dialogScroll, dialogBody, checkBoxList.Grids(), workArea(dlg.Handle()).Size())
+															grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids()}
+															packedColumns = packCoreGrids(grids, workArea(dlg.Handle()).Size())
 															pinContentWidth(dialogBody)
 															fitDialogToContent(dlg, dialogScroll)
 														},
@@ -610,7 +615,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 
 	// Spread the cores sideways until the dialog is short enough for the
 	// screen, before anything measures it.
-	packCoreGrids(dlg, dialogScroll, dialogBody, checkBoxList.Grids(), workArea(screen).Size())
+	grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids()}
+	packedColumns = packCoreGrids(grids, workArea(screen).Size())
 	pinContentWidth(dialogBody)
 	startDialogAtContentSize(dlg, dialogScroll, owner)
 
@@ -618,8 +624,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	// space empty. Only a change in the column count does any work, so this
 	// settles after one pass instead of feeding itself.
 	dlg.SizeChanged().Attach(func() {
-		if spreadCoreGrids(checkBoxList.Grids(), dialogScroll.ClientBoundsPixels().Width) {
-			pinContentWidth(dialogBody)
+		if refitCoreGrids(grids, packedColumns, dlg.SizePixels().Width) {
 			dialogBody.RequestLayout()
 		}
 	})

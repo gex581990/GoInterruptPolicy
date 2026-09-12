@@ -2,70 +2,140 @@ package main
 
 import "testing"
 
-func TestColumnsForWidth(t *testing.T) {
-	// A core box 190 wide with 6 of spacing between them, eight of them.
-	const box, spacing, count = 190, 6, 8
+// fakeMeasure models what the real measurement reports: a grid of count boxes
+// over n columns, next to content that does not change shape. Width is the
+// wider of the grid and that other content; height is the other content plus a
+// row of boxes per grid row.
+func fakeMeasure(count, box, spacing, boxHeight, otherWidth, otherHeight int) func(int) (int, int) {
+	return func(columns int) (int, int) {
+		if columns < 1 {
+			columns = 1
+		}
+
+		width := columns*box + (columns-1)*spacing
+		if width < otherWidth {
+			width = otherWidth
+		}
+
+		return width, otherHeight + mathCeilInInt(count, columns)*boxHeight
+	}
+}
+
+// The eight core machine this was reported on: three rows of boxes made the
+// dialog taller than the screen.
+func reporterMeasure() func(int) (int, int) {
+	return fakeMeasure(8, 190, 6, 170, 600, 880)
+}
+
+func TestFewestColumnsThatFitLeavesAFittingDialogAlone(t *testing.T) {
+	measure := reporterMeasure()
+
+	// Plenty of height: three columns already fits, so do not reshape it.
+	if got := fewestColumnsThatFit(3, 8, 4000, 4000, measure); got != 3 {
+		t.Errorf("got %d columns, want the 3 it started at", got)
+	}
+}
+
+func TestFewestColumnsThatFitWidensUntilItFits(t *testing.T) {
+	measure := reporterMeasure()
+
+	// 1400 of height. Three columns needs 880 + 3*170 = 1390, which fits.
+	if got := fewestColumnsThatFit(3, 8, 4000, 1390, measure); got != 3 {
+		t.Errorf("got %d columns at a height of 1390, want 3", got)
+	}
+
+	// 1300 does not fit three rows, but two rows (1220) does.
+	got := fewestColumnsThatFit(3, 8, 4000, 1300, measure)
+	if got != 4 {
+		t.Errorf("got %d columns at a height of 1300, want 4 so the boxes take two rows", got)
+	}
+	if _, height := measure(got); height > 1300 {
+		t.Errorf("%d columns still needs %d of height", got, height)
+	}
+}
+
+func TestFewestColumnsThatFitWillNotOutgrowTheWidth(t *testing.T) {
+	measure := reporterMeasure()
+
+	// Short screen, so it wants every column it can get, but only 1000 wide.
+	// Five columns needs 5*190 + 4*6 = 974; six needs 1170.
+	got := fewestColumnsThatFit(3, 8, 1000, 100, measure)
+	if got != 5 {
+		t.Errorf("got %d columns, want 5, the widest that fits 1000", got)
+	}
+	if width, _ := measure(got); width > 1000 {
+		t.Errorf("%d columns is %d wide, over the 1000 limit", got, width)
+	}
+}
+
+func TestWidestColumnsWithin(t *testing.T) {
+	measure := reporterMeasure()
 
 	tests := []struct {
 		name  string
-		avail int
+		limit int
+		width int
 		want  int
 	}{
-		{name: "nothing fits, one column anyway", avail: 0, want: 1},
-		{name: "exactly one box", avail: 190, want: 1},
-		{name: "one box and a bit", avail: 300, want: 1},
-		{name: "two boxes exactly", avail: 386, want: 2},  // 190 + 6 + 190
-		{name: "one short of three", avail: 581, want: 2}, // 582 would be three
-		{name: "three boxes exactly", avail: 582, want: 3},
-		{name: "room for more than there are", avail: 4000, want: count},
-		{name: "the reporter's window", avail: 1900, want: 8}, // 8 boxes need 1562
+		{name: "narrower than one box still gives one", limit: 8, width: 10, want: 1},
+		{name: "the other content sets the floor", limit: 8, width: 600, want: 3}, // 3 cols = 582 <= 600
+		{name: "room for five", limit: 8, width: 1000, want: 5},
+		{name: "never more than it was packed at", limit: 4, width: 4000, want: 4},
+		{name: "room for all of them", limit: 8, width: 4000, want: 8},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := columnsForWidth(tt.avail, box, spacing, count); got != tt.want {
-				t.Errorf("columnsForWidth(%d, %d, %d, %d) = %d, want %d",
-					tt.avail, box, spacing, count, got, tt.want)
+			if got := widestColumnsWithin(tt.limit, tt.width, measure); got != tt.want {
+				t.Errorf("widestColumnsWithin(%d, %d) = %d, want %d", tt.limit, tt.width, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestColumnsForWidthDegenerateInput(t *testing.T) {
-	if got := columnsForWidth(1000, 190, 6, 0); got != 1 {
-		t.Errorf("no boxes gave %d columns, want 1", got)
-	}
-	if got := columnsForWidth(1000, 0, 6, 8); got != 8 {
-		t.Errorf("an unmeasurable box gave %d columns, want all %d on one row", got, 8)
-	}
-	if got := columnsForWidth(-50, 190, 6, 8); got != 1 {
-		t.Errorf("negative width gave %d columns, want 1", got)
+// The regression that made the dialog look right only at one size: packing
+// chose a shape for the screen, the dialog then opened narrower than the
+// screen, and refitting immediately chose a different shape for that width.
+// Whatever packing settles on, refitting at the width that shape needs has to
+// agree with it, or the layout changes under the user as soon as it appears.
+func TestPackingAndRefittingAgree(t *testing.T) {
+	for _, area := range []struct{ width, height int }{
+		{1920, 1040}, {2560, 1390}, {3840, 2100}, {1366, 740}, {1280, 1000},
+	} {
+		for _, count := range []int{4, 8, 12, 16, 24, 32, 64} {
+			measure := fakeMeasure(count, 190, 6, 170, 600, 880)
+			start := mathCeilInInt(count, 3)
+
+			packed := fewestColumnsThatFit(start, count, area.width, area.height, measure)
+			width, _ := measure(packed)
+
+			// The dialog opens at the width that shape needs, so that is the
+			// width refitting will see.
+			refit := widestColumnsWithin(packed, width, measure)
+			if refit != packed {
+				t.Errorf("%dx%d, %d cores: packed to %d columns needing %d wide, but refitting at %d gave %d",
+					area.width, area.height, count, packed, width, width, refit)
+			}
+		}
 	}
 }
 
-// Spreading the cores sideways is only worth doing because it buys height back.
-// This is the arithmetic the packing loop relies on.
-func TestSpreadingColumnsCostsWidthAndSavesHeight(t *testing.T) {
-	const box, spacing, count = 190, 6, 8
-	const boxHeight = 170
+// Both searches rely on the content never getting taller or narrower as
+// columns are added. If that stops holding they can stop at the wrong place.
+func TestMeasurementIsMonotonicInColumns(t *testing.T) {
+	for _, count := range []int{4, 8, 16, 32, 64} {
+		measure := fakeMeasure(count, 190, 6, 170, 600, 880)
 
-	rowsFor := func(columns int) int { return mathCeilInInt(count, columns) }
-
-	narrow := columnsForWidth(600, box, spacing, count)
-	wide := columnsForWidth(1900, box, spacing, count)
-
-	if wide <= narrow {
-		t.Fatalf("a wider window gave %d columns against %d, want more", wide, narrow)
+		prevWidth, prevHeight := measure(1)
+		for columns := 2; columns <= count; columns++ {
+			width, height := measure(columns)
+			if width < prevWidth {
+				t.Errorf("%d cores: %d columns is narrower than %d columns", count, columns, columns-1)
+			}
+			if height > prevHeight {
+				t.Errorf("%d cores: %d columns is taller than %d columns", count, columns, columns-1)
+			}
+			prevWidth, prevHeight = width, height
+		}
 	}
-	if rowsFor(wide) >= rowsFor(narrow) {
-		t.Fatalf("%d columns still needs %d rows against %d rows for %d columns",
-			wide, rowsFor(wide), rowsFor(narrow), narrow)
-	}
-
-	saved := (rowsFor(narrow) - rowsFor(wide)) * boxHeight
-	if saved <= 0 {
-		t.Fatalf("spreading saved %d pixels of height", saved)
-	}
-	t.Logf("%d columns -> %d rows, %d columns -> %d rows, %d px of height saved",
-		narrow, rowsFor(narrow), wide, rowsFor(wide), saved)
 }
