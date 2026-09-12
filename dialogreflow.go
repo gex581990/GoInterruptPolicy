@@ -42,26 +42,6 @@ func fewestColumnsThatFit(start, most, maxWidth, maxHeight int, measure func(col
 	return best
 }
 
-// widestColumnsWithin returns the most columns, up to limit, whose content is
-// no wider than maxWidth. One column is the answer when even that does not fit,
-// since the boxes have to go somewhere.
-func widestColumnsWithin(limit, maxWidth int, measure func(columns int) (width, height int)) int {
-	if limit < 1 {
-		return 1
-	}
-
-	best := 1
-	for columns := 1; columns <= limit; columns++ {
-		if width, _ := measure(columns); width > maxWidth {
-			break
-		}
-
-		best = columns
-	}
-
-	return best
-}
-
 // setGridColumns lays the children of a grid composite out over the given
 // number of columns. walk builds a grid by giving every child a cell, and
 // SetRange moves a child to another one, so the boxes themselves are untouched
@@ -163,12 +143,13 @@ func (c coreGrids) measure(columns int) (width, height int) {
 	return size.Width, size.Height
 }
 
-// packCoreGrids gives the cores the shape the dialog will open at: the fewest
-// columns that make it short enough for the screen. Returns that count, which
-// is the shape resize then treats as the roomy end of the range.
-func packCoreGrids(c coreGrids, area walk.Size) int {
+// packCoreGrids gives the cores the shape the dialog opens at: the fewest
+// columns that make it short enough for the screen. It runs once, when the
+// dialog is built and again if the processor list is switched on, and the
+// shape it picks is then the shape for good.
+func packCoreGrids(c coreGrids, area walk.Size) {
 	if c.empty() || area.Width <= 0 || area.Height <= 0 {
-		return 0
+		return
 	}
 
 	// Start from the shape the layout heuristic chose, so a dialog that already
@@ -180,31 +161,4 @@ func packCoreGrids(c coreGrids, area walk.Size) int {
 	columns := fewestColumnsThatFit(start, mostChildren(c.grids), area.Width, area.Height, c.measure)
 	c.apply(columns)
 	logf("pack: chose %d columns", columns)
-
-	return columns
-}
-
-// refitCoreGrids folds the cores onto more rows when the dialog is too narrow
-// for the shape it opened at, and unfolds them again as it is widened back.
-// Reports whether anything changed.
-//
-// This deliberately depends on the dialog width alone, and never on the
-// scrollbar or on the content height. Those depend back on the column count,
-// and letting them decide it is what made the layout change its mind while the
-// window was being dragged.
-func refitCoreGrids(c coreGrids, packed, outerWidth int) bool {
-	if c.empty() || packed < 1 || outerWidth <= 0 {
-		return false
-	}
-
-	before := c.columns()
-	logf("refit: dialog is %d wide, packed shape was %d columns, currently %d",
-		outerWidth, packed, before)
-
-	columns := widestColumnsWithin(packed, outerWidth, c.measure)
-	c.apply(columns)
-	logf("refit: chose %d columns (%s)", columns,
-		map[bool]string{true: "changed", false: "unchanged"}[columns != before])
-
-	return columns != before
 }

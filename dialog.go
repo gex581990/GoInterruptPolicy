@@ -86,10 +86,6 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	var acceptPB, cancelPB *walk.PushButton
 	var cpuArrayComView, dialogBody *walk.Composite
 	var dialogScroll *walk.ScrollView
-	// The number of columns the cores are packed onto when the dialog opens.
-	// Resizing never goes beyond it, so narrowing the window folds the cores up
-	// and widening it unfolds them back to exactly the shape they started at.
-	var packedColumns int
 	var devicePolicyCB, devicePriorityCB, openRegistryCB, openDeviceManagerCB *walk.ComboBox
 	var MsiSupportedCB *walk.CheckBox
 	var deviceMessageNumberLimitNE *walk.NumberEdit
@@ -325,7 +321,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 															// minimum and walk leaves the dialog at its old
 															// size. Grow and shrink it here instead.
 															grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids()}
-															packedColumns = packCoreGrids(grids, workArea(dlg.Handle()).Size())
+															packCoreGrids(grids, workArea(dlg.Handle()).Size())
 															pinContentWidth(dialogBody)
 															fitDialogToContent(dlg, dialogScroll)
 														},
@@ -621,7 +617,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	logGrids("built", grids.grids)
 	logDialog("before packing", dlg, dialogScroll, dialogBody)
 
-	packedColumns = packCoreGrids(grids, workArea(screen).Size())
+	packCoreGrids(grids, workArea(screen).Size())
 	pinContentWidth(dialogBody)
 
 	logDialog("after packing", dlg, dialogScroll, dialogBody)
@@ -648,13 +644,14 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 			logRect(bounds), logSize(min), logSize(dialogScroll.ClientBoundsPixels().Size()), short)
 	})
 
+	// Resizing deliberately leaves the core grid alone. Reflowing it as the
+	// window narrowed folded the boxes onto more rows, which made the content
+	// taller at the very moment there was less room for it: on the machine this
+	// was measured on, dragging from 3719 wide down to 1200 took the content
+	// from 1937 tall to 2471, so the narrower the window got the more of it was
+	// hidden. A window smaller than its content scrolls; that is all.
 	dlg.SizeChanged().Attach(func() {
 		logDialog("resized", dlg, dialogScroll, dialogBody)
-
-		if refitCoreGrids(grids, packedColumns, dlg.SizePixels().Width) {
-			dialogBody.RequestLayout()
-			logGrids("after refit", grids.grids)
-		}
 	})
 
 	return dlg.Run(), *device, nil

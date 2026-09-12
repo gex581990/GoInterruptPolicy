@@ -68,58 +68,6 @@ func TestFewestColumnsThatFitWillNotOutgrowTheWidth(t *testing.T) {
 	}
 }
 
-func TestWidestColumnsWithin(t *testing.T) {
-	measure := reporterMeasure()
-
-	tests := []struct {
-		name  string
-		limit int
-		width int
-		want  int
-	}{
-		{name: "narrower than one box still gives one", limit: 8, width: 10, want: 1},
-		{name: "the other content sets the floor", limit: 8, width: 600, want: 3}, // 3 cols = 582 <= 600
-		{name: "room for five", limit: 8, width: 1000, want: 5},
-		{name: "never more than it was packed at", limit: 4, width: 4000, want: 4},
-		{name: "room for all of them", limit: 8, width: 4000, want: 8},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := widestColumnsWithin(tt.limit, tt.width, measure); got != tt.want {
-				t.Errorf("widestColumnsWithin(%d, %d) = %d, want %d", tt.limit, tt.width, got, tt.want)
-			}
-		})
-	}
-}
-
-// The regression that made the dialog look right only at one size: packing
-// chose a shape for the screen, the dialog then opened narrower than the
-// screen, and refitting immediately chose a different shape for that width.
-// Whatever packing settles on, refitting at the width that shape needs has to
-// agree with it, or the layout changes under the user as soon as it appears.
-func TestPackingAndRefittingAgree(t *testing.T) {
-	for _, area := range []struct{ width, height int }{
-		{1920, 1040}, {2560, 1390}, {3840, 2100}, {1366, 740}, {1280, 1000},
-	} {
-		for _, count := range []int{4, 8, 12, 16, 24, 32, 64} {
-			measure := fakeMeasure(count, 190, 6, 170, 600, 880)
-			start := mathCeilInInt(count, 3)
-
-			packed := fewestColumnsThatFit(start, count, area.width, area.height, measure)
-			width, _ := measure(packed)
-
-			// The dialog opens at the width that shape needs, so that is the
-			// width refitting will see.
-			refit := widestColumnsWithin(packed, width, measure)
-			if refit != packed {
-				t.Errorf("%dx%d, %d cores: packed to %d columns needing %d wide, but refitting at %d gave %d",
-					area.width, area.height, count, packed, width, width, refit)
-			}
-		}
-	}
-}
-
 // Both searches rely on the content never getting taller or narrower as
 // columns are added. If that stops holding they can stop at the wrong place.
 func TestMeasurementIsMonotonicInColumns(t *testing.T) {
