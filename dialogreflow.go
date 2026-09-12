@@ -27,40 +27,27 @@ import (
 // only ever grows with the font size, and adding a column never makes the
 // content narrower and never makes it taller.
 
-// dialogFontFloor and dialogFontCeiling are how far the dialog font may be
-// taken from the size the system chose, as fractions of it. The floor is what
-// a window too small for its content is allowed to shrink to before the
-// ScrollView takes over; the ceiling is how far a window larger than its
-// content may magnify it.
-const (
-	dialogFontFloor   = 3.0 / 4.0
-	dialogFontCeiling = 3.0
-)
+// dialogFontFloor is how far the dialog font may be reduced from the size the
+// system chose, as a fraction of it, when the content does not fit the screen.
+// It is never taken above that size: the point of the reduction is to fit a
+// screen, not to second guess what the user asked their display to do.
+const dialogFontFloor = 3.0 / 4.0
 
-// smallestFontSize and largestFontSize are the range the dialog font may be
-// scaled over, given the size the system chose. Keeping them relative to that
-// size rather than naming point sizes is what gives a display whose scaling
-// makes everything large the same headroom, proportionally, as one that does
-// not.
+// smallestFontSize is the smallest the dialog font may be reduced to, given
+// the size the system chose. Keeping it relative to that size rather than
+// naming a point size is what gives a display whose scaling makes everything
+// large the same headroom, proportionally, as one that does not.
 func smallestFontSize(points int) int {
-	return scaleFontSize(points, dialogFontFloor)
-}
-
-func largestFontSize(points int) int {
-	return scaleFontSize(points, dialogFontCeiling)
-}
-
-func scaleFontSize(points int, by float64) int {
 	if points < 1 {
 		return 1
 	}
 
-	scaled := int(float64(points) * by)
-	if scaled < 1 {
-		scaled = 1
+	smallest := int(float64(points) * dialogFontFloor)
+	if smallest < 1 {
+		smallest = 1
 	}
 
-	return scaled
+	return smallest
 }
 
 // columnsThatFit returns the fewest columns, from start up to most, whose
@@ -394,27 +381,34 @@ func (c coreGrids) checkMonotonic(shape dialogShape, size walk.Size) {
 	}
 }
 
-// fitDialogContent draws the dialog as large as it can be while still fitting
-// target, which is an outer window size. ceiling is the largest font size it
-// may use, so the caller decides whether this is allowed to magnify the dialog
-// or only to shrink it.
+// fitDialogAtOpen lays the content out to fit a screen of the given work area,
+// as large as it can be without going over the size the system chose.
 //
-// This is the whole of the sizing policy, and nothing in it names a pixel or a
-// point: a larger window is answered by drawing everything larger rather than
-// by padding the content with empty space, a smaller one by drawing everything
-// smaller, and past the floor the ScrollView takes over.
-func fitDialogContent(c coreGrids, target walk.Size, ceiling int) {
-	if c.empty() || target.Width <= 0 || target.Height <= 0 {
+// This is the only place the dialog is ever laid out differently, and it runs
+// before the dialog is shown. Everything after that is the window showing more
+// of the content or less of it.
+//
+// That is deliberate. Nothing here can scale the dialog: the only size that can
+// be changed is the font, in whole points, while the margins and spacings
+// around it are fixed in the layout and do not follow. Changing the font
+// therefore lays the dialog out differently rather than magnifying it, in steps
+// of about a tenth of its size, and the number of columns the cores are over
+// steps as well. Doing that as a window is dragged means the shape of the thing
+// changes under the user's hand with no way to drag back to what they had. Done
+// once, before the dialog is up, it is just the dialog's size.
+func fitDialogAtOpen(c coreGrids, area walk.Size) {
+	if c.empty() || area.Width <= 0 || area.Height <= 0 {
 		return
 	}
 
-	points, columns := largestThatFits(smallestFontSize(c.font.PointSize()), ceiling,
-		c.columns, mostChildren(c.grids), target.Width, target.Height, c.measure)
+	drawn := c.font.PointSize()
+	points, columns := largestThatFits(smallestFontSize(drawn), drawn,
+		c.columns, mostChildren(c.grids), area.Width, area.Height, c.measure)
 
-	logf("fit: %s -> %dpt of %dpt over %d columns",
-		logSize(target), points, c.font.PointSize(), columns)
+	logf("fit: %s -> %dpt of %dpt over %d columns", logSize(area), points, drawn, columns)
 
 	c.apply(points, columns)
+	c.confirm(dialogShape{dpi: c.dlg.DPI(), points: points, columns: columns})
 
 	// Moving a widget to another cell does not ask for a layout on its own, and
 	// the font may well be the one the last shape tried was measured at, so say
@@ -427,24 +421,23 @@ func fitDialogContent(c coreGrids, target walk.Size, ceiling int) {
 	}
 }
 
-// fitDialogAtOpen sizes the content for a dialog that is about to be shown on
-// a screen of the given work area. It will shrink the dialog to fit but never
-// magnify it, so a dialog that already fits opens at the size the user's own
-// settings asked for instead of blown up to fill the screen.
-func fitDialogAtOpen(c coreGrids, area walk.Size) {
-	if c.empty() {
-		return
+// confirm measures the shape the dialog has just been drawn at and keeps that
+// answer, whatever was remembered before.
+//
+// Remembering a measurement is what keeps a drag from running a layout pass per
+// pixel, but it also means a measurement that was wrong once stays wrong, and a
+// dialog sized from it comes out differently from the same dialog sized before
+// the wrong answer was taken. So the shape that was actually chosen is measured
+// once more, on the widget tree as it now stands, and that is the answer that
+// is kept. Nothing here can be left believing something the dialog in front of
+// the user disagrees with.
+func (c coreGrids) confirm(shape dialogShape) {
+	size := contentDialogSize(c.dlg, c.scroll)
+
+	if was, ok := c.sizes[shape]; ok && was != size {
+		logf("    !! %dpt over %d columns was remembered as %s but measures %s",
+			shape.points, shape.columns, logSize(was), logSize(size))
 	}
 
-	fitDialogContent(c, area, c.font.PointSize())
-}
-
-// fitDialogToWindow redraws the content at the size the window has now. This
-// is what makes dragging the window scale the dialog rather than pad it.
-func fitDialogToWindow(c coreGrids) {
-	if c.empty() {
-		return
-	}
-
-	fitDialogContent(c, c.dlg.SizePixels(), largestFontSize(c.font.PointSize()))
+	c.sizes[shape] = size
 }

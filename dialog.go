@@ -668,18 +668,21 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 			logRect(bounds), logSize(min), logSize(dialogScroll.ClientBoundsPixels().Size()), short)
 	})
 
-	// Resizing the window redraws the content at the size the window now has,
-	// which is the whole point: dragging the dialog larger makes everything in
-	// it larger rather than spreading the same small dialog out over more empty
-	// space, and dragging it smaller makes everything smaller until the floor
-	// is reached and the ScrollView takes over.
+	// Resizing the window does not touch the content. The window shows more of
+	// it or less of it, and that is all.
 	//
-	// This cannot feed itself. The shape chosen is a function of the size of
-	// the window and nothing else, and drawing the content at that shape does
-	// not resize the window, so a size settles on one shape however it was
-	// arrived at.
+	// It did redraw the content to suit the window, and that is what could not
+	// be made to behave. Nothing here can scale: the only size that can be
+	// changed is the font, in whole points, and the margins and spacings around
+	// it are fixed in the layout and do not follow. So changing the font does
+	// not magnify the dialog, it lays it out differently, in steps of a tenth
+	// of its size, and the number of columns the cores are over steps as well.
+	// Dragging a window across one of those steps changes the whole shape of
+	// what is in it, and there is no size to drag back to that undoes half a
+	// step. A dialog that answers the window by holding still is one the user
+	// can drag out and back and find exactly where they left it, which is worth
+	// more than an answer that is a different shape each time.
 	dlg.SizeChanged().Attach(func() {
-		fitDialogToWindow(grids)
 		logDialog("resized", dlg, dialogScroll, dialogBody)
 	})
 

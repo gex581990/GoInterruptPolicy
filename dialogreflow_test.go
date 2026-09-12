@@ -125,49 +125,51 @@ func TestMeasurementIsMonotonic(t *testing.T) {
 	}
 }
 
-// What the dialog was doing wrong: a bigger window left the content the size
-// it was and padded it with empty space. Every extra bit of window has to end
-// up as a bigger font, a wider spread of cores, or both.
-func TestABiggerWindowDrawsABiggerDialog(t *testing.T) {
-	measure := reporterContent()
-
-	small, _ := largestThatFits(6, 24, 3, 8, 1200, 1400, measure)
-	large, _ := largestThatFits(6, 24, 3, 8, 3840, 2160, measure)
-
-	if large <= small {
-		t.Errorf("a 3840x2160 window draws at %dpt and a 1200x1400 one at %dpt, want larger", large, small)
-	}
-}
-
+// A screen with room for the dialog as it was drawn gets it as it was drawn,
+// and a screen without room gets it smaller. The size the system chose is the
+// ceiling: fitting a screen is the whole point of the reduction, so there is
+// never a reason to go above what the user's own settings asked for.
 func TestTheDialogIsDrawnAsLargeAsItFits(t *testing.T) {
 	measure := reporterContent()
 
-	points, columns := largestThatFits(6, 24, 3, 8, 3840, 2160, measure)
-
+	// 8pt over 8 columns is 1550x1050, which this screen has room for.
+	points, columns := largestThatFits(6, 8, 3, 8, 3840, 2160, measure)
+	if points != 8 {
+		t.Errorf("got %dpt on a screen with room to spare, want the 8pt it was drawn at", points)
+	}
 	if width, height := measure(points, columns); width > 3840 || height > 2160 {
 		t.Errorf("%dpt over %d columns needs %dx%d, over the 3840x2160 it was given", points, columns, width, height)
 	}
 
-	// One point larger has to be too big for it, or it was not the largest.
-	if _, ok := columnsThatFit(3, 8, 3840, 2160, func(c int) (int, int) { return measure(points+1, c) }); ok {
-		t.Errorf("drew at %dpt when %dpt also fits 3840x2160", points, points+1)
+	// A screen too short for it at the size it was drawn has to get it smaller.
+	small, columns := largestThatFits(6, 8, 3, 8, 3840, 1000, measure)
+	if small >= points {
+		t.Errorf("got %dpt on a screen too short for %dpt, want smaller", small, points)
+	}
+
+	// And as large as that screen can take: one point more has to be too big.
+	if _, ok := columnsThatFit(3, 8, 3840, 1000, func(c int) (int, int) { return measure(small+1, c) }); ok {
+		t.Errorf("drew at %dpt when %dpt also fits 3840x1000", small, small+1)
+	}
+	if width, height := measure(small, columns); width > 3840 || height > 1000 {
+		t.Errorf("%dpt over %d columns needs %dx%d, over the 3840x1000 it was given", small, columns, width, height)
 	}
 }
 
-// Dragging a window out and back has to land on the shape it started at. The
-// shape is a function of the size of the window and of nothing else, so there
-// is nothing for a drag to ratchet.
-func TestTheShapeDependsOnlyOnTheWindow(t *testing.T) {
+// The shape is a function of the screen and of nothing else, so opening the
+// dialog twice on the same screen gives the same dialog, whatever happened in
+// between.
+func TestTheShapeDependsOnlyOnTheScreen(t *testing.T) {
 	measure := reporterContent()
 
-	sizes := []struct{ width, height int }{
+	screens := []struct{ width, height int }{
 		{1200, 1400}, {3840, 2160}, {800, 900}, {2560, 1440}, {1200, 1400},
 	}
 
 	first := map[int]dialogShape{}
 	for pass := 0; pass < 2; pass++ {
-		for i, size := range sizes {
-			points, columns := largestThatFits(6, 24, 3, 8, size.width, size.height, measure)
+		for i, screen := range screens {
+			points, columns := largestThatFits(6, 8, 3, 8, screen.width, screen.height, measure)
 			shape := dialogShape{points: points, columns: columns}
 
 			if pass == 0 {
@@ -176,7 +178,7 @@ func TestTheShapeDependsOnlyOnTheWindow(t *testing.T) {
 			}
 
 			if shape != first[i] {
-				t.Errorf("%dx%d drew as %+v the first time and %+v the second", size.width, size.height, first[i], shape)
+				t.Errorf("%dx%d drew as %+v the first time and %+v the second", screen.width, screen.height, first[i], shape)
 			}
 		}
 	}
@@ -187,7 +189,7 @@ func TestTheShapeDependsOnlyOnTheWindow(t *testing.T) {
 func TestAWindowTooSmallStillGetsTheSmallestDialog(t *testing.T) {
 	measure := reporterContent()
 
-	points, columns := largestThatFits(6, 24, 3, 8, 700, 300, measure)
+	points, columns := largestThatFits(6, 8, 3, 8, 700, 300, measure)
 	if points != 6 {
 		t.Errorf("got %dpt, want the 6pt floor", points)
 	}
@@ -196,37 +198,33 @@ func TestAWindowTooSmallStillGetsTheSmallestDialog(t *testing.T) {
 	}
 }
 
-// The range the font is scaled over is a fraction of whatever size the system
+// How far the font may be reduced is a fraction of whatever size the system
 // chose rather than a point size of its own. A display scaled so that
 // everything is large therefore gets the same headroom, proportionally, as one
 // that is not, which is what keeps this from being tuned to one machine.
-func TestFontSizeRange(t *testing.T) {
-	tests := []struct{ points, smallest, largest int }{
-		{points: 8, smallest: 6, largest: 24}, // walk's default, MS Shell Dlg 2 at 8pt
-		{points: 9, smallest: 6, largest: 27}, // 6.75 truncated
-		{points: 10, smallest: 7, largest: 30},
-		{points: 12, smallest: 9, largest: 36},
-		{points: 16, smallest: 12, largest: 48},
-		{points: 1, smallest: 1, largest: 3}, // never below a point
-		{points: 0, smallest: 1, largest: 1},
-		{points: -3, smallest: 1, largest: 1},
+func TestSmallestFontSize(t *testing.T) {
+	tests := []struct{ points, want int }{
+		{points: 8, want: 6},  // walk's default, MS Shell Dlg 2 at 8pt
+		{points: 9, want: 6},  // 6.75 truncated
+		{points: 10, want: 7}, // 7.5 truncated
+		{points: 12, want: 9},
+		{points: 16, want: 12},
+		{points: 1, want: 1}, // never below a point
+		{points: 0, want: 1},
+		{points: -3, want: 1},
 	}
 
 	for _, tt := range tests {
-		if got := smallestFontSize(tt.points); got != tt.smallest {
-			t.Errorf("smallestFontSize(%d) = %d, want %d", tt.points, got, tt.smallest)
-		}
-		if got := largestFontSize(tt.points); got != tt.largest {
-			t.Errorf("largestFontSize(%d) = %d, want %d", tt.points, got, tt.largest)
+		if got := smallestFontSize(tt.points); got != tt.want {
+			t.Errorf("smallestFontSize(%d) = %d, want %d", tt.points, got, tt.want)
 		}
 	}
 
+	// Never larger than the size it was drawn at, or fitting a screen would
+	// turn into magnifying the dialog past what the user asked for.
 	for points := 1; points <= 72; points++ {
 		if got := smallestFontSize(points); got > points {
 			t.Errorf("smallestFontSize(%d) = %d, which is larger than the size it was drawn at", points, got)
-		}
-		if got := largestFontSize(points); got < points {
-			t.Errorf("largestFontSize(%d) = %d, which is smaller than the size it was drawn at", points, got)
 		}
 	}
 }
@@ -243,7 +241,7 @@ func TestTheSearchStaysCheap(t *testing.T) {
 		return measure(points, columns)
 	}
 
-	largestThatFits(6, 24, 4, 32, 3840, 2160, counted)
+	largestThatFits(6, 8, 4, 32, 3840, 2160, counted)
 
 	// Both searches halve their range, so this is a handful of steps over the
 	// font sizes times a handful over the column counts, not one measurement
