@@ -96,11 +96,12 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	CPUMap = make(map[Bits]string, maxProcessors)
-	CPUBits = make([]Bits, 0, maxProcessors)
-	for i := range maxProcessors {
-		index := Bits(1) << i
-		CPUMap[index] = strconv.Itoa(i)
+	var index Bits = 1
+	for i := 0; i < maxProcessors; i++ {
+		indexString := strconv.Itoa(i)
+		CPUMap[index] = indexString
 		CPUBits = append(CPUBits, index)
+		index *= 2
 	}
 }
 

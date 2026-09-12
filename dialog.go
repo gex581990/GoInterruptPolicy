@@ -52,6 +52,7 @@ func NewComboBoxModel(names []string) []*ComboBoxUintStruct {
 }
 
 type CheckBoxList struct {
+	Widget []Widget
 	// List holds the checkbox of every logical processor, indexed by its group
 	// relative processor number.
 	List      []*walk.CheckBox
@@ -99,7 +100,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	var dlg *walk.Dialog
 	var db *walk.DataBinder
 	var acceptPB, cancelPB *walk.PushButton
-	var cpuArrayComView, dialogBody *walk.Composite
+	var cpuArrayComView *walk.Composite
+	var dialogBody *walk.Composite
 	var dialogScroll *walk.ScrollView
 	var grids coreGrids
 	var devicePolicyCB, devicePriorityCB, openRegistryCB, openDeviceManagerCB *walk.ComboBox
@@ -875,7 +877,7 @@ func (checkboxlist *CheckBoxList) create(bits *Bits) []Widget {
 }
 
 func (checkboxlist *CheckBoxList) allOn(bits *Bits) {
-	for i := range checkboxlist.List {
+	for i := 0; i < len(checkboxlist.List); i++ {
 		// A processor number the CPU set information never reported has no
 		// checkbox, so do not claim it in the mask either.
 		if checkboxlist.List[i] == nil {
@@ -886,7 +888,7 @@ func (checkboxlist *CheckBoxList) allOn(bits *Bits) {
 	}
 }
 func (checkboxlist *CheckBoxList) allOff(bits *Bits) {
-	for i := range checkboxlist.List {
+	for i := 0; i < len(checkboxlist.List); i++ {
 		if checkboxlist.List[i] == nil {
 			continue
 		}
@@ -1024,29 +1026,27 @@ func interruptType(b Bits) string {
 	return strings.Join(types, ", ")
 }
 
-// CalculateMargins returns the margins of a core group box holding threads
-// checkboxes on a machine whose fattest core has maxThreadsPerCore of them.
-// A core with fewer threads than that gets extra padding above and below so
-// that every core box comes out the same height and the row of them lines up.
-// All values are 96 dpi units, walk scales them to the current dpi.
-func CalculateMargins(maxThreadsPerCore, threads int) Margins {
-	const margin = 9
-
-	if threads < 1 || maxThreadsPerCore == threads {
+// CalculateMargins pads a core box holding fewer threads than the fattest core
+// has, so every box comes out the same height and the row of them lines up.
+// The counts are arguments rather than read from the package wide cs so that a
+// table of them can be checked, and a core of no threads takes the even
+// margins since the division below would otherwise be by zero.
+func CalculateMargins(maxThreadsPerCore, value int) Margins {
+	if maxThreadsPerCore == value || value < 1 {
 		return Margins{
-			Left:   margin,
-			Top:    margin,
-			Right:  margin,
-			Bottom: margin,
+			Left:   9,
+			Top:    9,
+			Right:  9,
+			Bottom: 9,
 		}
-	}
-
-	part := (11.75 * float64(maxThreadsPerCore) / float64(threads))
-	return Margins{
-		Left:   margin,
-		Top:    int(math.Floor(part)),
-		Right:  margin,
-		Bottom: int(math.Ceil(part)),
+	} else {
+		part := (11.75 * float64(maxThreadsPerCore) / float64(value))
+		return Margins{
+			Left:   9,
+			Top:    int(math.Floor(part)),
+			Right:  9,
+			Bottom: int(math.Ceil(part)),
+		}
 	}
 }
 
