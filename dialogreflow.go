@@ -110,6 +110,9 @@ type coreGrids struct {
 	scroll *walk.ScrollView
 	body   *walk.Composite
 	grids  []*walk.Composite
+	// font is the size the system chose, kept so that scaling always starts
+	// from it rather than from whatever a previous pass left behind.
+	font *walk.Font
 }
 
 func (c coreGrids) empty() bool {
@@ -161,4 +164,74 @@ func packCoreGrids(c coreGrids, area walk.Size) {
 	columns := fewestColumnsThatFit(start, mostChildren(c.grids), area.Width, area.Height, c.measure)
 	c.apply(columns)
 	logf("pack: chose %d columns", columns)
+}
+
+// dialogFontFloor is how far the dialog font may shrink, as a fraction of the
+// size the system chose. Keeping the floor relative rather than naming a point
+// size is what makes this behave the same at any display scaling: the font is
+// only ever reduced when the content does not fit, and never below three
+// quarters of what the user's own settings asked for.
+const dialogFontFloor = 3.0 / 4.0
+
+// scaleDialogToFit shrinks the dialog font until the content is short enough
+// for the work area.
+//
+// This is the lever that actually suits the problem. Every size in the dialog
+// is derived from the font, so reducing it scales the whole thing rather than
+// reshaping any one part, and it stays sharp because the text is rendered at
+// the smaller size instead of being stretched. It is also what the trouble
+// usually is: at a high display scaling the content is too tall not because
+// there is too much of it but because every control is drawn several times the
+// size the layout was drawn around.
+//
+// At a scaling where everything already fits this does nothing at all, which
+// is what keeps it right on displays other than the one it was measured on.
+func scaleDialogToFit(c coreGrids, area walk.Size) {
+	if c.empty() || c.font == nil || area.Height <= 0 {
+		return
+	}
+
+	// Always start from the size the system chose, so running this again later
+	// cannot shrink the dialog a second time.
+	c.dlg.SetFont(c.font)
+	pinContentWidth(c.body)
+
+	family, style := c.font.Family(), c.font.Style()
+	points := c.font.PointSize()
+
+	for size := points; size >= smallestFontSize(points) && size > 0; size-- {
+		font, err := walk.NewFont(family, size, style)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		c.dlg.SetFont(font)
+		pinContentWidth(c.body)
+
+		height := contentDialogSize(c.dlg, c.scroll).Height
+		logf("scale: %dpt of %dpt -> content %d tall, work area %d",
+			size, points, height, area.Height)
+
+		if height <= area.Height {
+			return
+		}
+	}
+}
+
+// smallestFontSize is the smallest point size the dialog font may be reduced
+// to, given the size the system chose. It is a fraction of that size rather
+// than a fixed number of points, so a display whose scaling makes everything
+// large has the same headroom proportionally as one that does not.
+func smallestFontSize(points int) int {
+	if points < 1 {
+		return 1
+	}
+
+	smallest := int(float64(points) * dialogFontFloor)
+	if smallest < 1 {
+		smallest = 1
+	}
+
+	return smallest
 }

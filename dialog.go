@@ -320,7 +320,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 															// showing or hiding it does not change the layout
 															// minimum and walk leaves the dialog at its old
 															// size. Grow and shrink it here instead.
-															grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids()}
+															grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids(), dlg.Font()}
+															scaleDialogToFit(grids, workArea(dlg.Handle()).Size())
 															packCoreGrids(grids, workArea(dlg.Handle()).Size())
 															pinContentWidth(dialogBody)
 															fitDialogToContent(dlg, dialogScroll)
@@ -611,12 +612,17 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 
 	// Spread the cores sideways until the dialog is short enough for the
 	// screen, before anything measures it.
-	grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids()}
+	grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids(), dlg.Font()}
 
 	logMachine(dlg, workArea(screen))
 	logGrids("built", grids.grids)
 	logDialog("before packing", dlg, dialogScroll, dialogBody)
 
+	// Scale the whole dialog down first, since that keeps the layout the shape
+	// it was drawn as. Reshaping the core grid is the fallback for when even
+	// the smallest font this will use leaves the content too tall, and past
+	// that the work area cap and the ScrollView take over.
+	scaleDialogToFit(grids, workArea(screen).Size())
 	packCoreGrids(grids, workArea(screen).Size())
 	pinContentWidth(dialogBody)
 

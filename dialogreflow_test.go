@@ -87,3 +87,33 @@ func TestMeasurementIsMonotonicInColumns(t *testing.T) {
 		}
 	}
 }
+
+// The font may only be reduced so far, and the limit is a fraction of whatever
+// size the system chose rather than a point size of its own. A display scaled
+// so that everything is large therefore gets the same headroom, proportionally,
+// as one that is not, which is what keeps this from being tuned to one machine.
+func TestSmallestFontSize(t *testing.T) {
+	tests := []struct{ points, want int }{
+		{points: 8, want: 6},  // walk's default, MS Shell Dlg 2 at 8pt
+		{points: 9, want: 6},  // 6.75 truncated
+		{points: 10, want: 7}, // 7.5 truncated
+		{points: 12, want: 9},
+		{points: 16, want: 12},
+		{points: 1, want: 1}, // never below a point
+		{points: 0, want: 1},
+		{points: -3, want: 1},
+	}
+
+	for _, tt := range tests {
+		if got := smallestFontSize(tt.points); got != tt.want {
+			t.Errorf("smallestFontSize(%d) = %d, want %d", tt.points, got, tt.want)
+		}
+	}
+
+	// Never larger than what it started from, or it would scale the dialog up.
+	for points := 1; points <= 72; points++ {
+		if got := smallestFontSize(points); got > points {
+			t.Errorf("smallestFontSize(%d) = %d, which is larger than the size it started at", points, got)
+		}
+	}
+}
