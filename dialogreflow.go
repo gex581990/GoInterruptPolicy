@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"math"
 
 	"github.com/tailscale/walk"
 )
@@ -204,9 +205,51 @@ func setGridColumns(grid *walk.Composite, columns int) {
 	for _, move := range gridMoves(children.Len(), columns) {
 		cell := walk.Rectangle{X: move.x, Y: move.y, Width: 1, Height: 1}
 		if err := layout.SetRange(children.At(move.box), cell); err != nil {
+			// Carry on rather than return. The moves are two passes and every
+			// box is parked in a row of its own between them, so stopping
+			// half way through the second leaves the boxes that have not been
+			// moved yet sitting in that parking row, which is a worse grid
+			// than the one a single failed move gives.
 			log.Println(err)
-			return
 		}
+	}
+}
+
+// rowsForColumns is how many rows the first grid has when it is laid out over
+// the given number of columns. It is the first grid that the search picks a
+// column count for, and this is what the other grids follow.
+func rowsForColumns(grids []*walk.Composite, columns int) int {
+	if len(grids) == 0 || columns < 1 {
+		return 1
+	}
+
+	if rows := mathCeilInInt(grids[0].Children().Len(), columns); rows > 0 {
+		return rows
+	}
+
+	return 1
+}
+
+// setGridRows lays every grid out over the number of columns that gives it the
+// given number of rows.
+//
+// The grids are not laid out over the same number of columns as each other,
+// and giving them one count is wrong. A machine whose cores come in more than
+// one efficiency class gets a grid per class, and getLayout picks a single row
+// count for the whole set and then gives each class the columns that fit its
+// own cores into those rows, so that the classes line up beside one another. A
+// six core class over two columns and an eight core class over three are both
+// three rows tall; put both over two and the eight core class is four rows,
+// taller than the machine was drawn to be and no longer level with its
+// neighbour. So rows are what is held in common here, exactly as getLayout
+// had it.
+func setGridRows(grids []*walk.Composite, rows int) {
+	if rows < 1 {
+		rows = 1
+	}
+
+	for _, grid := range grids {
+		setGridColumns(grid, mathCeilInInt(grid.Children().Len(), rows))
 	}
 }
 
@@ -310,28 +353,32 @@ func (c coreGrids) forget() {
 	clear(c.sizes)
 }
 
-// apply draws the dialog at the given shape. It does not ask for a layout,
-// since the search runs this once per shape it tries on and only the last of
-// them is the one to lay out.
-func (c coreGrids) apply(points, columns int) {
+// apply draws the dialog at the given shape and says whether it managed to. It
+// does not ask for a layout, since the search runs this once per shape it tries
+// on and only the last of them is the one to lay out.
+func (c coreGrids) apply(points, columns int) bool {
 	font, err := walk.NewFont(c.font.Family(), points, c.font.Style())
 	if err != nil {
+		// Stop rather than carry on with the rest. Measuring what is left is
+		// measuring the font the previous shape was drawn at, and recording
+		// that answer under this shape would have the search choose a size
+		// from a measurement of a different one.
 		log.Println(err)
-	} else {
-		// walk caches fonts by family, size and style, so this hands back the
-		// same handle every time a size is tried again and there is nothing to
-		// dispose of.
-		c.dlg.SetFont(font)
+		return false
 	}
 
-	for _, grid := range c.grids {
-		setGridColumns(grid, columns)
-	}
+	// walk caches fonts by family, size and style, so this hands back the same
+	// handle every time a size is tried again and there is nothing to dispose
+	// of.
+	c.dlg.SetFont(font)
+	setGridRows(c.grids, rowsForColumns(c.grids, columns))
 
 	// Re-cap the content column last: a cap left over from another shape would
 	// hold the content at a width that shape wanted, and the measurement taken
 	// next would report that width rather than this shape's own.
 	pinContentWidth(c.body)
+
+	return true
 }
 
 // measure reports the outer size the dialog would need to show everything at
@@ -342,7 +389,14 @@ func (c coreGrids) measure(points, columns int) (width, height int) {
 		return size.Width, size.Height
 	}
 
-	c.apply(points, columns)
+	if !c.apply(points, columns) {
+		// Leave the shape unmeasured rather than remember a size taken at
+		// whatever the dialog is still drawn at, and report a size nothing can
+		// hold. A shape that could not be drawn must not read as one that fits
+		// perfectly, which is what a zero would do, so the search steps away
+		// from it rather than settling on it.
+		return math.MaxInt32, math.MaxInt32
+	}
 
 	size := contentDialogSize(c.dlg, c.scroll)
 	c.sizes[shape] = size
@@ -407,8 +461,9 @@ func fitDialogAtOpen(c coreGrids, area walk.Size) {
 
 	logf("fit: %s -> %dpt of %dpt over %d columns", logSize(area), points, drawn, columns)
 
-	c.apply(points, columns)
-	c.confirm(dialogShape{dpi: c.dlg.DPI(), points: points, columns: columns})
+	if c.apply(points, columns) {
+		c.confirm(dialogShape{dpi: c.dlg.DPI(), points: points, columns: columns})
+	}
 
 	// Moving a widget to another cell does not ask for a layout on its own, and
 	// the font may well be the one the last shape tried was measured at, so say

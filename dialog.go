@@ -15,6 +15,21 @@ import (
 	. "github.com/tailscale/walk/declarative"
 )
 
+// deviceTextMinSize is the width the three device labels are never drawn
+// narrower than, and groupNoteMinSize the width the processor group note wraps
+// at. Widths only, so the height is left to the text.
+//
+// These are the one place a number of this sort is named, and both are named
+// for the same reason: the string is Windows', of a length nobody here decides,
+// and a label whose minimum is its own text would let one long string set the
+// width of the whole dialog. A floor bounds what a string can do to the layout
+// while leaving room to read it. Like every other size in the declarative
+// layout they are 96 dpi units, which walk scales to the monitor.
+var (
+	deviceTextMinSize = Size{Width: 240}
+	groupNoteMinSize  = Size{Width: 380}
+)
+
 type ComboBoxIntStruct struct {
 	Enums int
 	Name  string
@@ -170,25 +185,33 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 								AssignTo: &dialogBody,
 								Layout:   VBox{},
 								Children: []Widget{
-									// None of these three may ellipsise, and there is no
-									// spacer across the two columns.
+									// These three carry whatever Windows calls the device,
+									// which is a string of no known length, and they are
+									// why the grid has no spacer across its two columns.
 									//
-									// A label that is allowed to ellipsise reports a
-									// minimum width of zero, and a grid hands every column
-									// its minimum first and shares out what is left
-									// afterwards. So an ellipsising label is cut whenever
-									// the sharing out does not reach its full width, which
-									// is why these three were cut at sizes where there was
-									// clearly room. Without it the label's minimum is its
-									// text, and a minimum is the one thing a layout cannot
-									// take away.
+									// The floor and the ellipsis are a pair, and it takes
+									// both. A label allowed to ellipsise reports a minimum
+									// width of zero, and a layout hands out minimums first
+									// and shares out what is left afterwards, so a bare
+									// ellipsising label is cut whenever the sharing out
+									// falls short, which is what cut these three at sizes
+									// where there was clearly room. A label not allowed to
+									// ellipsise has its whole text as its minimum instead,
+									// and since the content column is held at its own
+									// minimum, one long device name would then set the
+									// width of the whole dialog and everything in it would
+									// be scaled down to fit that name. So the floor is the
+									// width they are never cut below, the ellipsis is what
+									// a name too long for the dialog does instead of
+									// widening it, and the tooltip carries the whole
+									// string either way.
 									//
-									// The spacer went for the same sort of reason: walk
-									// bounds a column at the widest thing in it, but takes
-									// that bound from a spanning child as unbounded, so a
-									// spacer laid across both columns left the label column
-									// free to swallow the whole window and push the values
-									// into the middle of it.
+									// The spacer went for a reason of its own: walk bounds
+									// a column at the widest thing in it, but reads that
+									// bound from a spanning child as unbounded, so a
+									// spacer laid across both columns left the label
+									// column free to swallow the window and push the
+									// values into the middle of it.
 									Composite{
 										Layout: Grid{
 											Columns: 2,
@@ -198,24 +221,30 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 												Text: "Name:",
 											},
 											Label{
-												ToolTipText: strings.Join(DeviceDesc, "\n"),
-												Text:        Bind("device.DeviceDesc == '' ? 'N/A' : device.DeviceDesc"),
+												EllipsisMode: EllipsisEnd,
+												MinSize:      deviceTextMinSize,
+												ToolTipText:  strings.Join(DeviceDesc, "\n"),
+												Text:         Bind("device.DeviceDesc == '' ? 'N/A' : device.DeviceDesc"),
 											},
 
 											Label{
 												Text: "Location Info:",
 											},
 											Label{
-												ToolTipText: strings.Join(LocationInformation, "\n"),
-												Text:        Bind("device.LocationInformation == '' ? 'N/A' : device.LocationInformation"),
+												EllipsisMode: EllipsisEnd,
+												MinSize:      deviceTextMinSize,
+												ToolTipText:  strings.Join(LocationInformation, "\n"),
+												Text:         Bind("device.LocationInformation == '' ? 'N/A' : device.LocationInformation"),
 											},
 
 											Label{
 												Text: "DevObj Name:",
 											},
 											Label{
-												ToolTipText: strings.Join(DevObjName, "\n"),
-												Text:        Bind("device.DevObjName == '' ? 'N/A' : device.DevObjName"),
+												EllipsisMode: EllipsisEnd,
+												MinSize:      deviceTextMinSize,
+												ToolTipText:  strings.Join(DevObjName, "\n"),
+												Text:         Bind("device.DevObjName == '' ? 'N/A' : device.DevObjName"),
 											},
 										},
 									},
@@ -364,9 +393,17 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 													// the list stops at group 0. It is where an ordinary
 													// device's interrupts are delivered, so this is a note
 													// about the machine and not a warning.
-													Label{
+													//
+													// A TextLabel with a width set wraps, a Label does not,
+													// and a sentence this long on one line would be the
+													// widest thing in the dialog and would set the width of
+													// everything else. Which would land on exactly the
+													// machines this note is for, since they are the ones
+													// with the most cores to lay out already.
+													TextLabel{
 														Visible:     cs.Skipped != 0,
-														Text:        otherGroupsText(),
+														MinSize:     groupNoteMinSize,
+														Text:        cs.otherGroupsText(),
 														ToolTipText: "Only a group aware driver can put a device's interrupts in another processor group, and it does that for itself. The Affinity Policy registry key holds a single group mask and has no value for a group number.",
 													},
 
@@ -494,16 +531,22 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 
 													// NOTE: The file name can be improved.
 													filePath, cancel, err := saveFileExplorer(dlg, path, strings.ReplaceAll(devices[0].DeviceDesc, " ", "_")+".reg", "Save current settings", "Registry File (*.reg)|*.reg")
-													if !cancel || err != nil {
-														file, err := os.Create(filePath)
-														if err != nil {
-															return
-														}
-														defer file.Close()
 
-														if _, err := file.Write(regFileDocument(reg_file_value.String())); err != nil {
-															log.Println(err)
-														}
+													// Both, not either. saveFileExplorer reports a failed
+													// dialog as cancelled as well as failed, and asking only
+													// whether it was cancelled let a failure through to be
+													// written to the empty path it came back with, where the
+													// error was swallowed and the button did nothing at all.
+													if err != nil {
+														walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
+														return
+													}
+													if cancel {
+														return
+													}
+
+													if err := writeRegFile(filePath, regFileDocument(reg_file_value.String())); err != nil {
+														walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
 													}
 												},
 											},
@@ -659,6 +702,13 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	// The bounds the body is actually given, once a layout has run. A body
 	// laid out shorter than its own minimum is the cut off, measured.
 	dialogBody.BoundsChanged().Attach(func() {
+		// MinSizeHint rebuilds the layout items for everything in the body,
+		// every core box and every thread checkbox of them, and this fires on
+		// every layout. Ask first whether anyone is going to read the answer.
+		if !logging {
+			return
+		}
+
 		bounds, min := dialogBody.BoundsPixels(), dialogBody.MinSizeHint()
 		short := ""
 		if bounds.Height < min.Height {

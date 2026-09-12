@@ -208,7 +208,7 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 // group 0 unless the driver itself asks for another group, so group 0 is where
 // the interrupts of an ordinary device are, and the mask in the registry
 // addresses exactly that group.
-func otherGroupsText() string {
+func (cs *CpuSets) otherGroupsText() string {
 	if cs.Skipped == 0 {
 		return ""
 	}

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // fakeCpuSets builds processor information the way the Windows API hands it
 // over: the entry count is len(slice) / Size, not len(slice).
@@ -253,5 +256,39 @@ func TestInitReportsUnreachableProcessorGroups(t *testing.T) {
 				t.Errorf("kept %d + skipped %d != %d reported", len(cs.CPU), cs.Skipped, tt.count)
 			}
 		})
+	}
+}
+
+// The note is what the user is told about processors this tool cannot reach,
+// so it has to be right about how many there are and say nothing at all when
+// there are none. It is a method rather than a function reading the package
+// global so that it can be asked here.
+func TestOtherGroupsText(t *testing.T) {
+	var quiet CpuSets
+	quiet.initFrom(fakeCpuSets(16, func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet) {
+		c.LogicalProcessorIndex = byte(i)
+		c.CoreIndex = byte(i / 2 * 2)
+	}))
+
+	if got := quiet.otherGroupsText(); got != "" {
+		t.Errorf("a single group machine says %q, want nothing", got)
+	}
+
+	var split CpuSets
+	split.initFrom(fakeCpuSets(128, func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet) {
+		c.Group = uint16(i / 64)
+		c.LogicalProcessorIndex = byte(i % 64)
+		c.CoreIndex = byte(i % 64 / 2 * 2)
+	}))
+
+	got := split.otherGroupsText()
+	if got == "" {
+		t.Fatal("a machine with an unreachable group says nothing")
+	}
+	if !strings.Contains(got, "2 groups") {
+		t.Errorf("%q does not say how many groups the machine has", got)
+	}
+	if !strings.Contains(got, "other 64 processors") {
+		t.Errorf("%q does not say how many processors are not listed", got)
 	}
 }
