@@ -158,6 +158,7 @@ func (c coreGrids) apply(columns int) {
 func (c coreGrids) measure(columns int) (width, height int) {
 	c.apply(columns)
 	size := contentDialogSize(c.dlg, c.scroll)
+	logf("    try %2d columns -> content %s", columns, logSize(size))
 
 	return size.Width, size.Height
 }
@@ -172,8 +173,13 @@ func packCoreGrids(c coreGrids, area walk.Size) int {
 
 	// Start from the shape the layout heuristic chose, so a dialog that already
 	// fits is left the way its author drew it.
-	columns := fewestColumnsThatFit(c.columns(), mostChildren(c.grids), area.Width, area.Height, c.measure)
+	start := c.columns()
+	logf("pack: fitting %d boxes into %s, starting from %d columns",
+		mostChildren(c.grids), logSize(area), start)
+
+	columns := fewestColumnsThatFit(start, mostChildren(c.grids), area.Width, area.Height, c.measure)
 	c.apply(columns)
+	logf("pack: chose %d columns", columns)
 
 	return columns
 }
@@ -192,9 +198,13 @@ func refitCoreGrids(c coreGrids, packed, outerWidth int) bool {
 	}
 
 	before := c.columns()
+	logf("refit: dialog is %d wide, packed shape was %d columns, currently %d",
+		outerWidth, packed, before)
 
 	columns := widestColumnsWithin(packed, outerWidth, c.measure)
 	c.apply(columns)
+	logf("refit: chose %d columns (%s)", columns,
+		map[bool]string{true: "changed", false: "unchanged"}[columns != before])
 
 	return columns != before
 }

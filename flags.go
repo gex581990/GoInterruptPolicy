@@ -17,6 +17,7 @@ var (
 	flagRestart            bool
 	flagRestartOnChange    bool
 	flagHelp               bool
+	flagLog                string
 
 	CLIMode bool
 )
@@ -42,8 +43,11 @@ func init() {
 		flag.BoolVar(&flagRestart, "restart", false, "Restart target device")
 		flag.BoolVar(&flagRestartOnChange, "restart-on-change", false, "Restart target device on change")
 		flag.BoolVar(&flagHelp, "help", false, "Print Defaults")
+		flag.StringVar(&flagLog, "log", "", "write a diagnostic log to this file, e.g. -log layout.txt")
 
 		flag.Parse()
+
+		openLogFile()
 		if flagHelp {
 			fmt.Printf("Usage: %s [OPTIONS] argument ...\n", os.Args[0])
 			flag.PrintDefaults()

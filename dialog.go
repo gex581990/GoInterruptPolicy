@@ -616,16 +616,44 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	// Spread the cores sideways until the dialog is short enough for the
 	// screen, before anything measures it.
 	grids := coreGrids{dlg, dialogScroll, dialogBody, checkBoxList.Grids()}
+
+	logMachine(dlg, workArea(screen))
+	logGrids("built", grids.grids)
+	logDialog("before packing", dlg, dialogScroll, dialogBody)
+
 	packedColumns = packCoreGrids(grids, workArea(screen).Size())
 	pinContentWidth(dialogBody)
+
+	logDialog("after packing", dlg, dialogScroll, dialogBody)
+
 	startDialogAtContentSize(dlg, dialogScroll, owner)
 
 	// Widening the dialog puts more cores on a row rather than leaving the
 	// space empty. Only a change in the column count does any work, so this
 	// settles after one pass instead of feeding itself.
+	dlg.Starting().Attach(func() {
+		logDialog("shown", dlg, dialogScroll, dialogBody)
+		logGrids("shown", grids.grids)
+	})
+
+	// The bounds the body is actually given, once a layout has run. A body
+	// laid out shorter than its own minimum is the cut off, measured.
+	dialogBody.BoundsChanged().Attach(func() {
+		bounds, min := dialogBody.BoundsPixels(), dialogBody.MinSizeHint()
+		short := ""
+		if bounds.Height < min.Height {
+			short = fmt.Sprintf("  <== %d SHORT", min.Height-bounds.Height)
+		}
+		logf("laid out: body %s, min %s, viewport %s%s",
+			logRect(bounds), logSize(min), logSize(dialogScroll.ClientBoundsPixels().Size()), short)
+	})
+
 	dlg.SizeChanged().Attach(func() {
+		logDialog("resized", dlg, dialogScroll, dialogBody)
+
 		if refitCoreGrids(grids, packedColumns, dlg.SizePixels().Width) {
 			dialogBody.RequestLayout()
+			logGrids("after refit", grids.grids)
 		}
 	})
 
