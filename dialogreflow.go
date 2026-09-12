@@ -161,9 +161,18 @@ func packCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, body *walk.Composi
 		return
 	}
 
+	// Start from the shape the layout heuristic already chose and only widen
+	// from there, so a dialog that fits is left the way its author drew it.
+	start := 1
+	for _, grid := range grids {
+		if columns := gridColumns(grid); columns > start {
+			start = columns
+		}
+	}
+
 	most := mostChildren(grids)
 
-	for columns := 1; columns <= most; columns++ {
+	for columns := start; columns <= most; columns++ {
 		for _, grid := range grids {
 			setGridColumns(grid, columns)
 		}

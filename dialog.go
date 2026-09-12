@@ -603,8 +603,26 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 		return 0, *device, err
 	}
 
+	screen := dlg.Handle()
+	if owner != nil {
+		screen = owner.Handle()
+	}
+
+	// Spread the cores sideways until the dialog is short enough for the
+	// screen, before anything measures it.
+	packCoreGrids(dlg, dialogScroll, dialogBody, checkBoxList.Grids(), workArea(screen).Size())
 	pinContentWidth(dialogBody)
 	startDialogAtContentSize(dlg, dialogScroll, owner)
+
+	// Widening the dialog puts more cores on a row rather than leaving the
+	// space empty. Only a change in the column count does any work, so this
+	// settles after one pass instead of feeding itself.
+	dlg.SizeChanged().Attach(func() {
+		if spreadCoreGrids(checkBoxList.Grids(), dialogScroll.ClientBoundsPixels().Width) {
+			pinContentWidth(dialogBody)
+			dialogBody.RequestLayout()
+		}
+	})
 
 	return dlg.Run(), *device, nil
 }
