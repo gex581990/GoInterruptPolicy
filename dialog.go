@@ -448,7 +448,9 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 														}
 														defer file.Close()
 
-														file.WriteString(REG_FILE_HEADER + reg_file_value.String())
+														if _, err := file.Write(regFileDocument(reg_file_value.String())); err != nil {
+															log.Println(err)
+														}
 													}
 												},
 											},
