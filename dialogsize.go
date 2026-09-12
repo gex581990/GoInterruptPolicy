@@ -94,30 +94,6 @@ func clampInt(value, lo, hi int) int {
 	return value
 }
 
-// pinContentWidth caps the content column at the width it actually wants, so
-// the spacers beside it can take the rest of the window and keep it centred.
-//
-// Without a cap the column is greedy, like the sections inside it, and would
-// stretch a group box across the whole window. Box layouts serve greedy non
-// spacers before greedy spacers and hand on whatever a capped item did not
-// use, so pinning the column is what lets the two spacers split the remainder
-// evenly. The cap is the column's own minimum, which is measured from the
-// widget tree and so does not itself move when the cap is applied.
-func pinContentWidth(body *walk.Composite) {
-	if body == nil {
-		return
-	}
-
-	natural := body.MinSizeHint()
-	if natural.Width <= 0 {
-		return
-	}
-
-	if err := body.SetMinMaxSizePixels(walk.Size{}, walk.Size{Width: natural.Width}); err != nil {
-		log.Println(err)
-	}
-}
-
 // contentDialogSize returns the outer size dlg would need to show everything
 // without scrolling, with no cap applied. Native pixels throughout.
 func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {

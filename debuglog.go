@@ -95,7 +95,7 @@ func logDialog(when string, dlg *walk.Dialog, scroll *walk.ScrollView, body *wal
 	logf("%s: content wants %s, scroll viewport %s showing content %s",
 		when, logSize(contentDialogSize(dlg, scroll)),
 		logSize(scroll.ClientBoundsPixels().Size()), logSize(scroll.SizeHint()))
-	logf("%s: body min %s, pinned to max %s, body bounds %s",
-		when, logSize(body.MinSizeHint()), logSize(body.MaxSizePixels()),
-		logRect(body.BoundsPixels()))
+	logf("%s: body min %s, body bounds %s, font %dpt",
+		when, logSize(body.MinSizeHint()), logRect(body.BoundsPixels()),
+		dlg.Font().PointSize())
 }
