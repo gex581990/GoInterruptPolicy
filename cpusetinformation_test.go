@@ -213,3 +213,45 @@ func TestCalculateMargins(t *testing.T) {
 		t.Errorf("CalculateMargins(2, 0) = %+v, want a plain 9 all round", got)
 	}
 }
+
+func TestInitReportsUnreachableProcessorGroups(t *testing.T) {
+	tests := []struct {
+		name        string
+		count       int
+		perGroup    int
+		wantGroups  int
+		wantSkipped int
+		wantKept    int
+	}{
+		{name: "single group says nothing was lost", count: 16, perGroup: 64, wantGroups: 1, wantSkipped: 0, wantKept: 16},
+		{name: "a full single group is still reachable", count: 64, perGroup: 64, wantGroups: 1, wantSkipped: 0, wantKept: 64},
+		{name: "two full groups lose the second", count: 128, perGroup: 64, wantGroups: 2, wantSkipped: 64, wantKept: 64},
+		// bcdedit /set groupsize splits smaller machines too, so more than one
+		// group does not have to mean more than 64 processors.
+		{name: "forced small groups lose everything past the first", count: 32, perGroup: 8, wantGroups: 4, wantSkipped: 24, wantKept: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cs CpuSets
+			cs.initFrom(fakeCpuSets(tt.count, func(i int, c *SYSTEM_CPU_SET_INFORMATION_Anonymous_CpuSet) {
+				c.Group = uint16(i / tt.perGroup)
+				c.LogicalProcessorIndex = byte(i % tt.perGroup)
+				c.CoreIndex = byte(i % tt.perGroup / 2 * 2)
+			}))
+
+			if cs.Groups != tt.wantGroups {
+				t.Errorf("Groups = %d, want %d", cs.Groups, tt.wantGroups)
+			}
+			if cs.Skipped != tt.wantSkipped {
+				t.Errorf("Skipped = %d, want %d", cs.Skipped, tt.wantSkipped)
+			}
+			if len(cs.CPU) != tt.wantKept {
+				t.Errorf("kept %d processors, want %d", len(cs.CPU), tt.wantKept)
+			}
+			if cs.Skipped+len(cs.CPU) != tt.count {
+				t.Errorf("kept %d + skipped %d != %d reported", len(cs.CPU), cs.Skipped, tt.count)
+			}
+		})
+	}
+}

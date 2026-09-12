@@ -307,6 +307,17 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 												Layout:   VBox{MarginsZero: true},
 												Visible:  Bind("device.DevicePolicy == 4"), // IrqPolicySpecifiedProcessors
 												Children: []Widget{
+													// Windows keeps this as one KAFFINITY, which reaches a
+													// single processor group, and the registry has no value for
+													// saying which. Anything past group 0 is unreachable, so say
+													// so rather than quietly show a subset of the machine.
+													Label{
+														Visible:     cs.Skipped != 0,
+														TextColor:   walk.RGB(0xA0, 0x20, 0x00),
+														Text:        skippedProcessorsText(),
+														ToolTipText: "Windows keeps this setting as a single 64 bit group affinity mask and offers no registry value for the group number, so only group 0 can be addressed.",
+													},
+
 													Composite{
 														Layout: HBox{
 															Alignment:   AlignHCenterVNear,

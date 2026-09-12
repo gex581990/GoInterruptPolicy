@@ -19,7 +19,12 @@ type CpuSets struct {
 	// Threads is one past the highest addressable logical processor number, so
 	// it is the length of every per processor slice the dialog indexes by that
 	// number. It is not the number of processors when the numbering has gaps.
-	Threads         int
+	Threads int
+	// Groups is how many processor groups the machine has. Windows makes one
+	// per 64 logical processors, so anything above one means this tool cannot
+	// reach every processor. Skipped counts the ones it left out.
+	Groups          int
+	Skipped         int
 	CPU             []CpuSet
 	CoreGroups      []CoreGroups
 	CoreLayout      *CoreLayout
@@ -107,9 +112,12 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 
 	var ClassGroup = []int{}
 	var lastEfficiencyClass, lastLevelCache, lastNumaNodeIndex byte
-	var skipped int
 	for i := 0; i < int(uint32(len(SystemCpuSets))/SystemCpuSets[0].Size); i++ {
 		cpu := SystemCpuSets[i].CpuSet()
+
+		if int(cpu.Group)+1 > cs.Groups {
+			cs.Groups = int(cpu.Group) + 1
+		}
 
 		// A 64 bit affinity mask reaches processor group 0 and nothing else, so
 		// leave the rest out rather than offer a checkbox that cannot be written
@@ -117,7 +125,7 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 		// below maxProcessors on every sane machine, but it indexes CPUBits and
 		// the checkbox list, so do not take that on trust.
 		if cpu.Group != 0 || int(cpu.LogicalProcessorIndex) >= maxProcessors {
-			skipped++
+			cs.Skipped++
 			continue
 		}
 
@@ -173,8 +181,8 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 		}
 	}
 
-	if skipped != 0 {
-		log.Printf("%d logical processors are outside processor group 0 and cannot be addressed by a 64 bit affinity mask, they are not shown", skipped)
+	if cs.Skipped != 0 {
+		log.Printf("%d of %d logical processors are outside processor group 0 and cannot be addressed by a 64 bit affinity mask, they are not shown", cs.Skipped, cs.Skipped+len(cs.CPU))
 	}
 
 	sort.Slice(cs.CPU, func(i, j int) bool {
@@ -191,4 +199,16 @@ func (cs *CpuSets) initFrom(systemCpuSets []SYSTEM_CPU_SET_INFORMATION) {
 	for _, col := range cols {
 		cs.CoreGroups = append(cs.CoreGroups, CoreGroups{Rows: rows, Cols: col})
 	}
+}
+
+// skippedProcessorsText explains, for the dialog, why the processor list is
+// shorter than the machine. It is empty when everything is reachable.
+func skippedProcessorsText() string {
+	if cs.Skipped == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"This machine has %d processor groups. Only group 0 is listed: the affinity mask Windows stores holds one group, so the other %d processors cannot be selected.",
+		cs.Groups, cs.Skipped)
 }
