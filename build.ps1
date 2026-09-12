@@ -45,7 +45,7 @@ goversioninfo `
 while ($true) {
     Clear-Host
 
-    go-critic check -enableAll -disable "#experimental,#opinionated,#commentedOutCode" ./... 2>$null
+    gocritic check -enableAll -disable "#experimental,#opinionated,#commentedOutCode" ./... 2>$null
 
     if (Test-Path "$filename.exe") {
         $beforeSize = (Get-Item "$filename.exe").Length
