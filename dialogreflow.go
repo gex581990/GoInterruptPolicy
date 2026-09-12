@@ -233,6 +233,7 @@ type dialogShape struct {
 type coreGrids struct {
 	dlg    *walk.Dialog
 	scroll *walk.ScrollView
+	body   *walk.Composite
 	grids  []*walk.Composite
 	// font is the size the system chose. Every size tried is derived from it,
 	// so scaling twice cannot compound, and the family and style the user's own
@@ -250,10 +251,11 @@ type coreGrids struct {
 
 // newCoreGrids takes the dialog as it was drawn, so call it before anything
 // has changed the font or the shape of the core grids.
-func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, grids []*walk.Composite) coreGrids {
+func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, body *walk.Composite, grids []*walk.Composite) coreGrids {
 	c := coreGrids{
 		dlg:    dlg,
 		scroll: scroll,
+		body:   body,
 		grids:  grids,
 		font:   dlg.Font(),
 		sizes:  make(map[dialogShape]walk.Size),
@@ -294,6 +296,11 @@ func (c coreGrids) apply(points, columns int) {
 	for _, grid := range c.grids {
 		setGridColumns(grid, columns)
 	}
+
+	// Re-cap the content column last: a cap left over from another shape would
+	// hold the content at a width that shape wanted, and the measurement taken
+	// next would report that width rather than this shape's own.
+	pinContentWidth(c.body)
 }
 
 // measure reports the outer size the dialog would need to show everything at
@@ -338,8 +345,12 @@ func fitDialogContent(c coreGrids, target walk.Size, ceiling int) {
 	// Moving a widget to another cell does not ask for a layout on its own, and
 	// the font may well be the one the last shape tried was measured at, so say
 	// so here rather than leave the dialog drawn as whatever the search stopped
-	// on.
-	c.dlg.RequestLayout()
+	// on. Before the dialog is up there is nothing to lay out yet, and asking
+	// for one would only shrink the window to the layout minimum that the
+	// opening size is about to replace.
+	if c.dlg.Visible() {
+		c.dlg.RequestLayout()
+	}
 }
 
 // fitDialogAtOpen sizes the content for a dialog that is about to be shown on

@@ -170,3 +170,34 @@ func TestClampInt(t *testing.T) {
 		}
 	}
 }
+
+// walk keeps the sizes of a window in 96 dpi units and converts them back to
+// pixels by rounding, so a cap taken straight from a measurement in pixels can
+// come back a pixel or two short and squeeze the content it is meant to leave
+// alone. The rounding up has to hold at every scaling, not just at whole
+// multiples of 96.
+func TestWidthIn96DPIRoundsUp(t *testing.T) {
+	for _, dpi := range []int{96, 120, 144, 168, 192, 240, 288, 384, 100, 137} {
+		for width := 1; width <= 4000; width++ {
+			units := widthIn96DPI(width, dpi)
+
+			if back := walk.IntFrom96DPI(units, dpi); back < width {
+				t.Fatalf("at %d dpi a width of %d capped at %d units, which is %d pixels, short of it",
+					dpi, width, units, back)
+			}
+
+			// Never more than one unit of slack, or the cap would leave the
+			// content loose enough to be stretched after all.
+			if tight := walk.IntFrom96DPI(units-1, dpi); units > 0 && tight >= width {
+				t.Fatalf("at %d dpi a width of %d capped at %d units, one more than it needs",
+					dpi, width, units)
+			}
+		}
+	}
+}
+
+func TestWidthIn96DPIHandlesAnUnknownDPI(t *testing.T) {
+	if got := widthIn96DPI(845, 0); got != 845 {
+		t.Errorf("widthIn96DPI(845, 0) = %d, want the width unchanged", got)
+	}
+}

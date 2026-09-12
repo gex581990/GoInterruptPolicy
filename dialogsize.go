@@ -94,6 +94,59 @@ func clampInt(value, lo, hi int) int {
 	return value
 }
 
+// pinContentWidth caps the content column at the width it asks for, so the
+// spacers beside it take the rest of the window and keep it centred.
+//
+// This is what stops anything being stretched, and stretching is what was
+// cutting text off. Without the cap the column is greedy, like the sections
+// inside it, and a window wider than the content is shared out among them a
+// column and a row at a time; at some widths that leaves a label or a button
+// with less than its own text needs and it is clipped mid word. Held at its
+// own width there is nothing to share out and every control gets exactly what
+// it asked for, whatever the window is doing.
+//
+// Box layouts serve greedy non spacers before greedy spacers and hand on
+// whatever a capped item did not use, so capping the column is also what lets
+// the two spacers split the remainder evenly. The cap is the column's own
+// minimum, which is measured from the widget tree and does not itself move
+// when the cap is applied.
+func pinContentWidth(body *walk.Composite) {
+	if body == nil {
+		return
+	}
+
+	natural := body.MinSizeHint()
+	if natural.Width <= 0 {
+		return
+	}
+
+	if err := body.SetMinMaxSize(walk.Size{}, walk.Size{Width: widthIn96DPI(natural.Width, body.DPI())}); err != nil {
+		log.Println(err)
+	}
+}
+
+// widthIn96DPI is width, which is in native pixels, as a whole number of 96 dpi
+// units that is no smaller than it.
+//
+// walk keeps the sizes of a window in 96 dpi units and converts them back to
+// pixels by rounding, so a width that is not a whole number of them comes back
+// as much as half a unit short: at a scaling of 300% that is a pixel or two,
+// and a cap a pixel short squeezes the very content it is there to leave
+// alone. Rounding up means the round trip can only ever land on the width or
+// just above it.
+func widthIn96DPI(width, dpi int) int {
+	if dpi <= 0 {
+		return width
+	}
+
+	units := walk.IntTo96DPI(width, dpi)
+	for walk.IntFrom96DPI(units, dpi) < width {
+		units++
+	}
+
+	return units
+}
+
 // contentDialogSize returns the outer size dlg would need to show everything
 // without scrolling, with no cap applied. Native pixels throughout.
 func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {
