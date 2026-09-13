@@ -47,9 +47,5 @@ IF !failed! EQU 0 (
 ) ELSE (
     ECHO %outdir%\ : !built! built, !failed! FAILED
 )
-ECHO.
-ECHO Run one with -log to record what it made of the layout, e.g.
-ECHO     %outdir%\%filename%_9950X3D.exe -log 9950X3D.txt
-
 ENDLOCAL
 PAUSE

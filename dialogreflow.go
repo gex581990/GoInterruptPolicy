@@ -165,8 +165,8 @@ type gridMove struct {
 // A box in no cell is not laid out. It is not drawn, and it is not measured
 // either, so the grid is reported shorter than it is and the dialog is then
 // sized to that wrong answer. Which boxes are lost depends on what the grid
-// was laid out over before, so the same window could come out differently
-// depending on the sizes it had been dragged through to get there.
+// was laid out over before, which made the dialog come out differently
+// depending on the shapes the search had already tried on the way there.
 //
 // So every box is parked in a row of its own first and moved to where it
 // belongs afterwards. No box's parking space is ever another box's old cell,
@@ -288,16 +288,18 @@ func mostChildren(grids []*walk.Composite) int {
 	return most
 }
 
-// dialogShape is a font size and a core column count, the pair that the search
-// is over, together with the dpi they were measured at. A point size is a
-// physical size and walk renders it at the dpi of the monitor the dialog is
-// on, so the same shape on a monitor of another scaling is a different number
-// of pixels: dragging the dialog across to one reaches past everything
-// remembered here rather than re-using it.
+// dialogShape is a font size and a row count: what the dialog is actually laid
+// out as, rather than what was asked for.
+//
+// The asking is in columns, and several column counts give one layout, since
+// the rows they come to is ceil(boxes / columns) and that is many to one. On a
+// machine of 32 core boxes drawn over 8 columns, the 25 counts the search can
+// ask for are only 4 different grids. Naming a measurement by the layout it was
+// taken of rather than by the number that was asked for is what stops the same
+// grid being measured over and over.
 type dialogShape struct {
-	dpi     int
-	points  int
-	columns int
+	points int
+	rows   int
 }
 
 // coreGrids is the dialog seen as something to be scaled. Measuring goes
@@ -317,10 +319,6 @@ type coreGrids struct {
 	// the machine groups them. It is the narrowest shape the search will use,
 	// so a dialog is never folded tighter than its author laid it out.
 	columns int
-	// sizes is what each shape measured. Dragging the window about tries the
-	// same handful of shapes over and over, and a remembered one costs nothing,
-	// which is what keeps a resize from running a layout pass per pixel.
-	sizes map[dialogShape]walk.Size
 }
 
 // newCoreGrids takes the dialog as it was drawn, so call it before anything
@@ -332,7 +330,6 @@ func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, body *walk.Composit
 		body:   body,
 		grids:  grids,
 		font:   dlg.Font(),
-		sizes:  make(map[dialogShape]walk.Size),
 	}
 
 	if len(grids) > 0 {
@@ -344,13 +341,6 @@ func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, body *walk.Composit
 
 func (c coreGrids) empty() bool {
 	return c.dlg == nil || c.scroll == nil || c.font == nil
-}
-
-// forget drops the remembered measurements. Showing or hiding a section
-// changes what every shape measures, so the old numbers no longer describe
-// this dialog.
-func (c coreGrids) forget() {
-	clear(c.sizes)
 }
 
 // apply draws the dialog at the given shape and says whether it managed to. It
@@ -381,56 +371,61 @@ func (c coreGrids) apply(points, columns int) bool {
 	return true
 }
 
-// measure reports the outer size the dialog would need to show everything at
-// the given shape, drawing it at that shape to find out.
-func (c coreGrids) measure(points, columns int) (width, height int) {
-	shape := dialogShape{dpi: c.dlg.DPI(), points: points, columns: columns}
-	if size, ok := c.sizes[shape]; ok {
-		return size.Width, size.Height
-	}
-
-	if !c.apply(points, columns) {
-		// Leave the shape unmeasured rather than remember a size taken at
-		// whatever the dialog is still drawn at, and report a size nothing can
-		// hold. A shape that could not be drawn must not read as one that fits
-		// perfectly, which is what a zero would do, so the search steps away
-		// from it rather than settling on it.
-		return math.MaxInt32, math.MaxInt32
-	}
-
-	size := contentDialogSize(c.dlg, c.scroll)
-	c.sizes[shape] = size
-
-	return size.Width, size.Height
-}
-
 // fitDialogAtOpen lays the content out to fit a screen of the given work area,
 // as large as it can be without going over the size the system chose.
 //
-// This is the only place the dialog is ever laid out differently, and it runs
-// before the dialog is shown. Everything after that is the window showing more
-// of the content or less of it.
+// This is the only place the dialog is ever laid out differently. It runs
+// before the dialog is shown, and again when the processor list is switched on
+// or off, since that changes how much there is to lay out. It does not run in
+// between: nothing watches the window, so resizing shows more of the content or
+// less of it and changes nothing else.
 //
 // That is deliberate. Nothing here can scale the dialog: the only size that can
 // be changed is the font, in whole points, while the margins and spacings
 // around it are fixed in the layout and do not follow. Changing the font
 // therefore lays the dialog out differently rather than magnifying it, in steps
 // of about a tenth of its size, and the number of columns the cores are over
-// steps as well. Doing that as a window is dragged means the shape of the thing
-// changes under the user's hand with no way to drag back to what they had. Done
-// once, before the dialog is up, it is just the dialog's size.
+// steps as well. Doing that as a window is dragged would mean the shape of the
+// thing changing under the user's hand with no way to drag back to what they
+// had. Done when the content itself changes, it is just the dialog's size.
 func fitDialogAtOpen(c coreGrids, area walk.Size) {
 	if c.empty() || area.Width <= 0 || area.Height <= 0 {
 		return
 	}
 
+	// What each layout measured, for the length of this search and no longer.
+	// The two searches below re-probe counts they have already been through, so
+	// remembering saves real work, but nothing outside wants these numbers and
+	// a table that outlived the search would have to be invalidated by hand
+	// every time the dialog changed.
+	measured := map[dialogShape]walk.Size{}
+
+	measure := func(points, columns int) (width, height int) {
+		shape := dialogShape{points: points, rows: rowsForColumns(c.grids, columns)}
+		if size, ok := measured[shape]; ok {
+			return size.Width, size.Height
+		}
+
+		if !c.apply(points, columns) {
+			// Leave the layout unmeasured rather than remember a size taken at
+			// whatever the dialog is still drawn as, and report a size nothing
+			// can hold. A layout that could not be drawn must not read as one
+			// that fits perfectly, which is what a zero would do, so the search
+			// steps away from it rather than settling on it.
+			return math.MaxInt32, math.MaxInt32
+		}
+
+		size := contentDialogSize(c.dlg, c.scroll)
+		measured[shape] = size
+
+		return size.Width, size.Height
+	}
+
 	drawn := c.font.PointSize()
 	points, columns := largestThatFits(smallestFontSize(drawn), drawn,
-		c.columns, mostChildren(c.grids), area.Width, area.Height, c.measure)
+		c.columns, mostChildren(c.grids), area.Width, area.Height, measure)
 
-	if c.apply(points, columns) {
-		c.confirm(dialogShape{dpi: c.dlg.DPI(), points: points, columns: columns})
-	}
+	c.apply(points, columns)
 
 	// Moving a widget to another cell does not ask for a layout on its own, and
 	// the font may well be the one the last shape tried was measured at, so say
@@ -441,18 +436,4 @@ func fitDialogAtOpen(c coreGrids, area walk.Size) {
 	if c.dlg.Visible() {
 		c.dlg.RequestLayout()
 	}
-}
-
-// confirm measures the shape the dialog has just been drawn at and keeps that
-// answer, whatever was remembered before.
-//
-// Remembering a measurement is what keeps a drag from running a layout pass per
-// pixel, but it also means a measurement that was wrong once stays wrong, and a
-// dialog sized from it comes out differently from the same dialog sized before
-// the wrong answer was taken. So the shape that was actually chosen is measured
-// once more, on the widget tree as it now stands, and that is the answer that
-// is kept. Nothing here can be left believing something the dialog in front of
-// the user disagrees with.
-func (c coreGrids) confirm(shape dialogShape) {
-	c.sizes[shape] = contentDialogSize(c.dlg, c.scroll)
 }

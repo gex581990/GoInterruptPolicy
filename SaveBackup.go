@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"log"
-	"os"
 	"strings"
 	"text/template"
 	"unicode/utf16"
@@ -69,7 +69,7 @@ func regFileDocument(body string) []byte {
 	out := make([]byte, 0, 2+len(units)*2)
 	out = append(out, 0xFF, 0xFE) // UTF-16LE byte order mark
 	for _, u := range units {
-		out = append(out, byte(u), byte(u>>8))
+		out = binary.LittleEndian.AppendUint16(out, u)
 	}
 
 	return out
@@ -85,23 +85,6 @@ func addComma(data string) string {
 	}
 
 	return b.String()
-}
-
-// writeRegFile writes a .reg document to path. Closing the file is part of
-// writing it: a close reports what a buffered write could not, and a file left
-// to be closed by the process exiting reports nothing at all.
-func writeRegFile(path string, document []byte) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-
-	if _, err := file.Write(document); err != nil {
-		file.Close()
-		return err
-	}
-
-	return file.Close()
 }
 
 func saveFileExplorer(owner walk.Form, path, filename, title, filter string) (filePath string, cancel bool, err error) {

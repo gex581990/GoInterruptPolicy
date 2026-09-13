@@ -25,12 +25,7 @@ func workArea(hwnd win.HWND) walk.Rectangle {
 		return walk.Rectangle{}
 	}
 
-	return walk.Rectangle{
-		X:      int(mi.RcWork.Left),
-		Y:      int(mi.RcWork.Top),
-		Width:  int(mi.RcWork.Right - mi.RcWork.Left),
-		Height: int(mi.RcWork.Bottom - mi.RcWork.Top),
-	}
+	return walk.RectangleFromRECT(mi.RcWork)
 }
 
 // capToSize limits size to available. Capping an axis is what brings up the
@@ -85,13 +80,7 @@ func centerBounds(old walk.Rectangle, size walk.Size, area walk.Rectangle) walk.
 // taller than the work area starts at its corner instead of hanging over the
 // top or the left of the screen.
 func clampInt(value, lo, hi int) int {
-	if value > hi {
-		value = hi
-	}
-	if value < lo {
-		value = lo
-	}
-	return value
+	return max(lo, min(value, hi))
 }
 
 // pinContentWidth caps the content column at the width it asks for, so the
@@ -152,10 +141,17 @@ func widthIn96DPI(width, dpi int) int {
 func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {
 	// A ScrollView with both scrollbars reports a minimum size of zero, so the
 	// layout minimum of the dialog covers everything except the scrolled
-	// content. SizeHint gives what that content would need, measured on the
-	// ScrollView itself so the composite walk keeps inside it is included.
-	client := walk.CreateLayoutItemsForContainer(dlg).MinSize()
-	content := scroll.SizeHint()
+	// content. What that content would need is the ScrollView's ideal size.
+	//
+	// Take it out of the tree just built rather than asking the ScrollView for
+	// it. Building that tree already walked the whole scrolled subtree, every
+	// core box and thread checkbox of it, and kept its minimum as the
+	// ScrollView's ideal size; SizeHint would build the identical subtree a
+	// second time to arrive at the same number. This is the innermost step of
+	// the search that sizes the dialog, so it is worth not paying twice.
+	items := walk.CreateLayoutItemsForContainer(dlg)
+	client := items.MinSize()
+	content := scrolledContentSize(items, scroll)
 
 	client.Height += content.Height
 	if content.Width > client.Width {
@@ -169,6 +165,24 @@ func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {
 		Width:  client.Width + outer.Width - inner.Width,
 		Height: client.Height + outer.Height - inner.Height,
 	}
+}
+
+// scrolledContentSize is the size the contents of scroll want, read from an
+// already built layout item tree. It falls back to asking the ScrollView
+// directly if it is not a child of the tree it was handed, so the answer cannot
+// depend on where in the dialog the ScrollView is put.
+func scrolledContentSize(items walk.ContainerLayoutItem, scroll *walk.ScrollView) walk.Size {
+	for _, child := range items.Children() {
+		if child.Handle() != scroll.Handle() {
+			continue
+		}
+
+		if sizer, ok := child.(walk.IdealSizer); ok {
+			return sizer.IdealSize()
+		}
+	}
+
+	return scroll.SizeHint()
 }
 
 // desiredDialogSize returns the outer size dlg needs to show the contents of

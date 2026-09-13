@@ -166,11 +166,13 @@ func TestTheShapeDependsOnlyOnTheScreen(t *testing.T) {
 		{1200, 1400}, {3840, 2160}, {800, 900}, {2560, 1440}, {1200, 1400},
 	}
 
-	first := map[int]dialogShape{}
+	type drawnAs struct{ points, columns int }
+
+	first := map[int]drawnAs{}
 	for pass := 0; pass < 2; pass++ {
 		for i, screen := range screens {
 			points, columns := largestThatFits(6, 8, 3, 8, screen.width, screen.height, measure)
-			shape := dialogShape{points: points, columns: columns}
+			shape := drawnAs{points: points, columns: columns}
 
 			if pass == 0 {
 				first[i] = shape
@@ -229,9 +231,10 @@ func TestSmallestFontSize(t *testing.T) {
 	}
 }
 
-// Each measurement is a layout pass over the real widget tree, and the search
-// runs on every drag event, so it has to stay cheap on a machine with a core
-// box for every column it could use.
+// Each measurement is a layout pass over the real widget tree, rebuilding the
+// layout items of every core box and thread checkbox in the dialog, so the
+// search has to stay cheap on a machine with a core box for every column it
+// could use.
 func TestTheSearchStaysCheap(t *testing.T) {
 	measure := fakeContent(32, 190, 6, 170, 600, 880, 8)
 

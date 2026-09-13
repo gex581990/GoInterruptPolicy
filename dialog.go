@@ -59,7 +59,7 @@ type CheckBoxList struct {
 	CoreIndex int
 	// grids holds the composites whose grid layout carries the core boxes. The
 	// declarative builder fills these in, which is why they are pointers to
-	// pointers, and reflowCoreGrids changes how many columns each one uses.
+	// pointers, and setGridRows changes how many columns each one uses.
 	grids []**walk.Composite
 }
 
@@ -176,9 +176,9 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 					// width there is nothing to share out and every control gets
 					// exactly what it asked for, at every window size.
 					//
-					// So the window is answered by scaling the content, which is
-					// what fitDialogContent does, and the two spacers take
-					// whatever is left over after that.
+					// The size the content is drawn at is chosen once, by
+					// fitDialogAtOpen, and the two spacers take whatever the
+					// window has over and above it.
 					Composite{
 						Layout: HBox{MarginsZero: true, SpacingZero: true},
 						Children: []Widget{
@@ -375,10 +375,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 															// The processor list is inside a ScrollView, so
 															// showing or hiding it does not change the layout
 															// minimum and walk leaves the dialog at its old
-															// size. Grow and shrink it here instead. Every
-															// remembered measurement was of a dialog with the
-															// list the other way round, so drop them first.
-															grids.forget()
+															// size. Lay it out again and grow or shrink it
+															// here instead.
 															fitDialogAtOpen(grids, workArea(dlg.Handle()).Size())
 															fitDialogToContent(dlg, dialogScroll)
 														},
@@ -547,7 +545,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 														return
 													}
 
-													if err := writeRegFile(filePath, regFileDocument(reg_file_value.String())); err != nil {
+													if err := os.WriteFile(filePath, regFileDocument(reg_file_value.String()), 0o666); err != nil {
 														walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
 													}
 												},
@@ -771,7 +769,7 @@ func (c *CheckBoxList) createEffClass(bits *Bits, effIdx, effLen int, cores [][]
 	}
 
 	// Keep the grid on a composite of its own even here, so that every grid
-	// reflowCoreGrids has to reshape is the same kind of thing.
+	// setGridRows has to lay out again is the same kind of thing.
 	return GroupBox{
 		Title:    EffName(effIdx),
 		Layout:   VBox{MarginsZero: true},
