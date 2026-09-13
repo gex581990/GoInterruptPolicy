@@ -400,39 +400,8 @@ func (c coreGrids) measure(points, columns int) (width, height int) {
 
 	size := contentDialogSize(c.dlg, c.scroll)
 	c.sizes[shape] = size
-	logf("    try %2dpt over %2d columns -> content %s", points, columns, logSize(size))
-	c.checkMonotonic(shape, size)
 
 	return size.Width, size.Height
-}
-
-// checkMonotonic says so in the log when a measurement cannot be right.
-//
-// Adding a column never makes the content taller and never makes it narrower,
-// and both searches rely on that. A measurement that breaks the rule means the
-// widget tree is not in the shape it was asked to be in, and a dialog sized
-// from a measurement of the wrong tree is the sort of fault that shows up as
-// the same window coming out differently depending on the sizes it was dragged
-// through to get there. It is far easier to find with the rule written down
-// than by looking at the result.
-func (c coreGrids) checkMonotonic(shape dialogShape, size walk.Size) {
-	if !logging {
-		return
-	}
-
-	narrower := shape
-	narrower.columns--
-	if was, ok := c.sizes[narrower]; ok && (was.Height < size.Height || was.Width > size.Width) {
-		logf("    !! %d columns measured %s but %d measured %s, which cannot both be right",
-			shape.columns, logSize(size), narrower.columns, logSize(was))
-	}
-
-	wider := shape
-	wider.columns++
-	if was, ok := c.sizes[wider]; ok && (was.Height > size.Height || was.Width < size.Width) {
-		logf("    !! %d columns measured %s but %d measured %s, which cannot both be right",
-			shape.columns, logSize(size), wider.columns, logSize(was))
-	}
 }
 
 // fitDialogAtOpen lays the content out to fit a screen of the given work area,
@@ -458,8 +427,6 @@ func fitDialogAtOpen(c coreGrids, area walk.Size) {
 	drawn := c.font.PointSize()
 	points, columns := largestThatFits(smallestFontSize(drawn), drawn,
 		c.columns, mostChildren(c.grids), area.Width, area.Height, c.measure)
-
-	logf("fit: %s -> %dpt of %dpt over %d columns", logSize(area), points, drawn, columns)
 
 	if c.apply(points, columns) {
 		c.confirm(dialogShape{dpi: c.dlg.DPI(), points: points, columns: columns})
@@ -487,12 +454,5 @@ func fitDialogAtOpen(c coreGrids, area walk.Size) {
 // is kept. Nothing here can be left believing something the dialog in front of
 // the user disagrees with.
 func (c coreGrids) confirm(shape dialogShape) {
-	size := contentDialogSize(c.dlg, c.scroll)
-
-	if was, ok := c.sizes[shape]; ok && was != size {
-		logf("    !! %dpt over %d columns was remembered as %s but measures %s",
-			shape.points, shape.columns, logSize(was), logSize(size))
-	}
-
-	c.sizes[shape] = size
+	c.sizes[shape] = contentDialogSize(c.dlg, c.scroll)
 }

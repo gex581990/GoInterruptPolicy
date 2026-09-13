@@ -691,57 +691,13 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	// that does not is scaled down.
 	grids = newCoreGrids(dlg, dialogScroll, dialogBody, checkBoxList.Grids())
 
-	logMachine(dlg, workArea(screen))
-	logGrids("built", grids.grids)
-	logDialog("before fitting", dlg, dialogScroll, dialogBody)
-
+	// The one and only time the content is laid out. There is deliberately
+	// nothing watching the window after this: resizing shows more of the
+	// content or less of it and changes nothing else, for the reasons
+	// fitDialogAtOpen gives.
 	fitDialogAtOpen(grids, workArea(screen).Size())
 
-	logDialog("after fitting", dlg, dialogScroll, dialogBody)
-
 	startDialogAtContentSize(dlg, dialogScroll, owner)
-
-	dlg.Starting().Attach(func() {
-		logDialog("shown", dlg, dialogScroll, dialogBody)
-		logGrids("shown", grids.grids)
-	})
-
-	// The bounds the body is actually given, once a layout has run. A body
-	// laid out shorter than its own minimum is the cut off, measured.
-	dialogBody.BoundsChanged().Attach(func() {
-		// MinSizeHint rebuilds the layout items for everything in the body,
-		// every core box and every thread checkbox of them, and this fires on
-		// every layout. Ask first whether anyone is going to read the answer.
-		if !logging {
-			return
-		}
-
-		bounds, min := dialogBody.BoundsPixels(), dialogBody.MinSizeHint()
-		short := ""
-		if bounds.Height < min.Height {
-			short = fmt.Sprintf("  <== %d SHORT", min.Height-bounds.Height)
-		}
-		logf("laid out: body %s, min %s, viewport %s%s",
-			logRect(bounds), logSize(min), logSize(dialogScroll.ClientBoundsPixels().Size()), short)
-	})
-
-	// Resizing the window does not touch the content. The window shows more of
-	// it or less of it, and that is all.
-	//
-	// It did redraw the content to suit the window, and that is what could not
-	// be made to behave. Nothing here can scale: the only size that can be
-	// changed is the font, in whole points, and the margins and spacings around
-	// it are fixed in the layout and do not follow. So changing the font does
-	// not magnify the dialog, it lays it out differently, in steps of a tenth
-	// of its size, and the number of columns the cores are over steps as well.
-	// Dragging a window across one of those steps changes the whole shape of
-	// what is in it, and there is no size to drag back to that undoes half a
-	// step. A dialog that answers the window by holding still is one the user
-	// can drag out and back and find exactly where they left it, which is worth
-	// more than an answer that is a different shape each time.
-	dlg.SizeChanged().Attach(func() {
-		logDialog("resized", dlg, dialogScroll, dialogBody)
-	})
 
 	return dlg.Run(), *device, nil
 }
