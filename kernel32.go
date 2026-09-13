@@ -67,6 +67,12 @@ var (
 	getSystemInfo              = libKernel32.NewProc("GetSystemInfo")
 )
 
+// Orphaned by this pull request, and left in place deliberately. init.go used to
+// call GetSystemInfo to size CPUBits to the processor count Windows reports; that
+// now uses the fixed 64 bits of the affinity mask instead, so this wrapper, its
+// two structs and the getSystemInfo proc above no longer have a caller. Removing
+// them was not this change's business.
+//
 // GetSystemInfo is an idiomatic wrapper for the GetSystemInfo function from sysinfoapi
 // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsysteminfo
 func GetSystemInfo() SystemInfo {

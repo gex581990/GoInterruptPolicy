@@ -52,7 +52,7 @@ func NewComboBoxModel(names []string) []*ComboBoxUintStruct {
 }
 
 type CheckBoxList struct {
-	Widget []Widget
+	Widget []Widget // Unused: nothing reads or writes this field.
 	// List holds the checkbox of every logical processor, indexed by its group
 	// relative processor number.
 	List      []*walk.CheckBox
@@ -593,6 +593,11 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 										},
 									},
 								},
+								// Unused: a Functions entry is reached by name from a Bind("...")
+								// expression, and none of the six Bind expressions in this dialog
+								// names checkIrqPolicy, viewAsHex or eq, so all three are
+								// unreachable. Left as found - they read like they were written
+								// for a column or a label that is not here yet.
 								Functions: map[string]func(args ...any) (any, error){
 									"checkIrqPolicy": func(args ...any) (any, error) {
 										for _, v := range NewComboBoxModel([]string{"Undefined", "Low", "Normal", "High"}) {

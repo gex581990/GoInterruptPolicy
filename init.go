@@ -16,11 +16,11 @@ var Version = "development"
 type Device struct {
 	Idata               DevInfoData
 	reg                 registry.Key
-	IrqPolicy           int32
+	IrqPolicy           int32 // Unused: nothing reads or writes this field.
 	DeviceDesc          string
-	DeviceIDs           []string
+	DeviceIDs           []string // Unused: nothing reads or writes this field.
 	DevObjName          string
-	Driver              string
+	Driver              string // Unused: nothing reads or writes this field.
 	LocationInformation string
 	FriendlyName        string
 	Class               string
@@ -106,7 +106,7 @@ func init() {
 }
 
 func Set(b, flag Bits) Bits    { return b | flag }
-func Clear(b, flag Bits) Bits  { return b &^ flag }
+func Clear(b, flag Bits) Bits  { return b &^ flag } // Unused: nothing calls this, unlike Set, Toggle and Has beside it.
 func Toggle(b, flag Bits) Bits { return b ^ flag }
 func Has(b, flag Bits) bool    { return b&flag != 0 }
 

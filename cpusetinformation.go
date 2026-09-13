@@ -8,6 +8,10 @@ import (
 
 var SystemCpuSets = []SYSTEM_CPU_SET_INFORMATION{}
 
+// Unused: ToolTipTextLastLevelCache and ToolTipTextEfficiencyClass below. The
+// ToolTipTextNumaNode beside them is used twice in dialog.go, but nothing
+// references those two. Left as found in case they are waiting on a column that
+// has not been added yet.
 const (
 	ToolTipTextNumaNode        = "A group-relative value indicating which NUMA node a CPU Set is on. All CPU Sets in a given group that are on the same NUMA node will have the same value for this field."
 	ToolTipTextLastLevelCache  = "A group-relative value indicating which CPU Sets share at least one level of cache with each other. This value is the same for all CPU Sets in a group that are on processors that share cache with each other."
