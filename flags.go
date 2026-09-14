@@ -44,6 +44,7 @@ func init() {
 		flag.BoolVar(&flagHelp, "help", false, "Print Defaults")
 
 		flag.Parse()
+
 		if flagHelp {
 			fmt.Printf("Usage: %s [OPTIONS] argument ...\n", os.Args[0])
 			flag.PrintDefaults()

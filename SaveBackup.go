@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"log"
 	"strings"
 	"text/template"
+	"unicode/utf16"
 
 	"github.com/tailscale/walk"
 )
@@ -42,8 +44,35 @@ func createRegFile(dlg *walk.Dialog, regpath string, item Device) string {
 		log.Fatalln(err)
 	}
 
-	return strings.ReplaceAll(buf.String(), "\n", "\r\n")
+	// Plain newlines here. regFileDocument turns the whole document, header
+	// included, into the line endings a .reg file needs; doing it per section
+	// was what left the header behind with bare newlines.
+	return buf.String()
+}
 
+// regFileDocument turns exported device sections into the bytes of a .reg
+// file, in the shape regedit itself writes: the header, CRLF line endings
+// throughout, and UTF-16 little endian with a byte order mark.
+//
+// Both of those matter. A parser checks that the first line reads exactly
+// "Windows Registry Editor Version 5.00", so a header ending in a bare newline
+// leaves it reading the rest of the file as part of that line and calling the
+// file invalid.
+func regFileDocument(body string) []byte {
+	// Fold any carriage returns back out first, so a document that already has
+	// them does not come out with doubled ones.
+	text := strings.ReplaceAll(REG_FILE_HEADER+body, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\n", "\r\n")
+
+	units := utf16.Encode([]rune(text))
+
+	out := make([]byte, 0, 2+len(units)*2)
+	out = append(out, 0xFF, 0xFE) // UTF-16LE byte order mark
+	for _, u := range units {
+		out = binary.LittleEndian.AppendUint16(out, u)
+	}
+
+	return out
 }
 
 func addComma(data string) string {

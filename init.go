@@ -16,11 +16,11 @@ var Version = "development"
 type Device struct {
 	Idata               DevInfoData
 	reg                 registry.Key
-	IrqPolicy           int32
+	IrqPolicy           int32 // Unused: nothing reads or writes this field.
 	DeviceDesc          string
-	DeviceIDs           []string
+	DeviceIDs           []string // Unused: nothing reads or writes this field.
 	DevObjName          string
-	Driver              string
+	Driver              string // Unused: nothing reads or writes this field.
 	LocationInformation string
 	FriendlyName        string
 	Class               string
@@ -67,8 +67,18 @@ const (
 
 type Bits uint64
 
+// maxProcessors is how many logical processors this tool can address. The
+// AssignmentSetOverride it writes to the registry is a single 64 bit KAFFINITY
+// affinity mask, and that mask covers processor group 0 only. Machines with
+// more processors than that need GROUP_AFFINITY, which is not implemented.
+const maxProcessors = 64
+
 var CPUMap map[Bits]string
 
+// CPUBits holds the affinity mask bit of every addressable logical processor,
+// indexed by its group relative processor number. It always has maxProcessors
+// entries, one per bit of the mask, so indexing it by a processor number that
+// the CPU set information reports is safe.
 var CPUBits []Bits
 var InterruptTypeMap = map[Bits]string{
 	0: "unknown",
@@ -78,7 +88,6 @@ var InterruptTypeMap = map[Bits]string{
 	4: "MsiX",
 }
 
-var sysInfo SystemInfo
 var handle DevInfo
 
 const ZeroBit = Bits(0)
@@ -86,10 +95,9 @@ const ZeroBit = Bits(0)
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	sysInfo = GetSystemInfo()
-	CPUMap = make(map[Bits]string, sysInfo.NumberOfProcessors)
+	CPUMap = make(map[Bits]string, maxProcessors)
 	var index Bits = 1
-	for i := 0; i < int(sysInfo.NumberOfProcessors); i++ {
+	for i := 0; i < maxProcessors; i++ {
 		indexString := strconv.Itoa(i)
 		CPUMap[index] = indexString
 		CPUBits = append(CPUBits, index)
@@ -98,7 +106,7 @@ func init() {
 }
 
 func Set(b, flag Bits) Bits    { return b | flag }
-func Clear(b, flag Bits) Bits  { return b &^ flag }
+func Clear(b, flag Bits) Bits  { return b &^ flag } // Unused: nothing calls this, unlike Set, Toggle and Has beside it.
 func Toggle(b, flag Bits) Bits { return b ^ flag }
 func Has(b, flag Bits) bool    { return b&flag != 0 }
 

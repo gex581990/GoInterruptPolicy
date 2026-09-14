@@ -48,6 +48,14 @@ func main() {
 					log.Println(err)
 					continue
 				}
+				// Against the machine, not against the mask. CPUBits is always
+				// 64 wide because that is how many bits the mask has, so
+				// checking it only catches a processor number no mask could
+				// hold and lets through one this machine does not have.
+				if i < 0 || i >= cs.Threads {
+					log.Printf("-cpu %d is not one of this machine's %d addressable processors", i, cs.Threads)
+					continue
+				}
 				assignmentSetOverride = Set(assignmentSetOverride, CPUBits[i])
 			}
 		}
