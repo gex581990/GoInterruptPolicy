@@ -3,42 +3,30 @@ package main
 import "testing"
 
 // fakeContent models what the real measurement reports: a grid of count boxes
-// over n columns, next to content that does not change shape, the whole of it
-// drawn at a font of points. Every size is proportional to the font size,
-// which is what the real dialog does. walk derives the layout from the
-// metrics of the font, so a dialog drawn at twice the point size is twice the
-// size in both directions.
-func fakeContent(count, box, spacing, boxHeight, otherWidth, otherHeight, drawnAt int) func(points, columns int) (int, int) {
-	return func(points, columns int) (int, int) {
+// over n columns, next to content that does not change shape.
+func fakeContent(count, box, spacing, boxHeight, otherWidth, otherHeight int) func(columns int) (int, int) {
+	return func(columns int) (int, int) {
 		if columns < 1 {
 			columns = 1
 		}
 
-		scale := func(size int) int { return size * points / drawnAt }
-
-		width := scale(columns*box + (columns-1)*spacing)
-		if other := scale(otherWidth); width < other {
-			width = other
+		width := columns*box + (columns-1)*spacing
+		if width < otherWidth {
+			width = otherWidth
 		}
 
-		return width, scale(otherHeight + mathCeilInInt(count, columns)*boxHeight)
+		return width, otherHeight + mathCeilInInt(count, columns)*boxHeight
 	}
 }
 
-// The eight core machine this was reported on, drawn at the 8pt the system
-// chose: three rows of boxes made the dialog taller than the screen.
-func reporterContent() func(int, int) (int, int) {
-	return fakeContent(8, 190, 6, 170, 600, 880, 8)
-}
-
-// Fixing the font at the size it was drawn at turns the measurement back into
-// one of columns alone, which is what columnsThatFit is given.
-func atDrawnSize(measure func(int, int) (int, int)) func(int) (int, int) {
-	return func(columns int) (int, int) { return measure(8, columns) }
+// The eight core machine this was reported on: three rows of boxes made the
+// dialog taller than the screen.
+func reporterContent() func(int) (int, int) {
+	return fakeContent(8, 190, 6, 170, 600, 880)
 }
 
 func TestColumnsThatFitLeavesAFittingShapeAlone(t *testing.T) {
-	measure := atDrawnSize(reporterContent())
+	measure := reporterContent()
 
 	// Plenty of height: the shape it was drawn as already fits, so keep it.
 	if got, ok := columnsThatFit(3, 8, 4000, 4000, measure); got != 3 || !ok {
@@ -47,7 +35,7 @@ func TestColumnsThatFitLeavesAFittingShapeAlone(t *testing.T) {
 }
 
 func TestColumnsThatFitNeverFoldsTighterThanItWasDrawn(t *testing.T) {
-	measure := atDrawnSize(reporterContent())
+	measure := reporterContent()
 
 	// One column fits this easily, but the boxes are laid out the way the
 	// machine groups its cores and there is no reason to fold them tighter.
@@ -57,7 +45,7 @@ func TestColumnsThatFitNeverFoldsTighterThanItWasDrawn(t *testing.T) {
 }
 
 func TestColumnsThatFitWidensUntilItFits(t *testing.T) {
-	measure := atDrawnSize(reporterContent())
+	measure := reporterContent()
 
 	// Three columns needs 880 + 3*170 = 1390 of height, which fits.
 	if got, ok := columnsThatFit(3, 8, 4000, 1390, measure); got != 3 || !ok {
@@ -75,7 +63,7 @@ func TestColumnsThatFitWidensUntilItFits(t *testing.T) {
 }
 
 func TestColumnsThatFitWillNotOutgrowTheWidth(t *testing.T) {
-	measure := atDrawnSize(reporterContent())
+	measure := reporterContent()
 
 	// Short screen, so it wants every column it can get, but only 1000 wide.
 	// Five columns needs 5*190 + 4*6 = 974; six needs 1170.
@@ -91,68 +79,50 @@ func TestColumnsThatFitWillNotOutgrowTheWidth(t *testing.T) {
 	}
 }
 
-// The searches rely on the content never getting taller or narrower as columns
-// are added, and never smaller as the font grows. If either stops holding they
-// can stop at the wrong place.
-func TestMeasurementIsMonotonic(t *testing.T) {
-	for _, count := range []int{4, 8, 16, 32, 64} {
-		measure := fakeContent(count, 190, 6, 170, 600, 880, 8)
+// A screen too short for the boxes even at the widest they may go gets them at
+// that widest and no wider, and is told they do not fit, so that the rest is
+// left to the scroll bar rather than to a longer, thinner strip of boxes.
+func TestColumnsThatFitStopsAtTheLimitAndLeavesTheRestToScroll(t *testing.T) {
+	measure := reporterContent()
 
-		for points := 6; points <= 24; points++ {
-			prevWidth, prevHeight := measure(points, 1)
-			for columns := 2; columns <= count; columns++ {
-				width, height := measure(points, columns)
-				if width < prevWidth {
-					t.Errorf("%d cores at %dpt: %d columns is narrower than %d columns", count, points, columns, columns-1)
-				}
-				if height > prevHeight {
-					t.Errorf("%d cores at %dpt: %d columns is taller than %d columns", count, points, columns, columns-1)
-				}
-				prevWidth, prevHeight = width, height
-			}
-		}
-
-		for columns := 1; columns <= count; columns++ {
-			prevWidth, prevHeight := measure(6, columns)
-			for points := 7; points <= 24; points++ {
-				width, height := measure(points, columns)
-				if width < prevWidth || height < prevHeight {
-					t.Errorf("%d cores over %d columns: %dpt is smaller than %dpt", count, columns, points, points-1)
-				}
-				prevWidth, prevHeight = width, height
-			}
-		}
+	// Two rows over four columns needs 1220 of height; the screen has 1000,
+	// and eight columns in one row would fit it, but four is the limit.
+	got, ok := columnsThatFit(3, 4, 4000, 1000, measure)
+	if got != 4 {
+		t.Errorf("got %d columns, want the limit of 4", got)
+	}
+	if ok {
+		t.Error("reported a fit for a shape taller than the screen")
 	}
 }
 
-// A screen with room for the dialog as it was drawn gets it as it was drawn,
-// and a screen without room gets it smaller. The size the system chose is the
-// ceiling: fitting a screen is the whole point of the reduction, so there is
-// never a reason to go above what the user's own settings asked for.
-func TestTheDialogIsDrawnAsLargeAsItFits(t *testing.T) {
+// The limit on how wide the boxes may go holds even against the shape they
+// were drawn as.
+func TestColumnsThatFitKeepsToTheLimitOverTheDrawnShape(t *testing.T) {
 	measure := reporterContent()
 
-	// 8pt over 8 columns is 1550x1050, which this screen has room for.
-	points, columns := largestThatFits(6, 8, 3, 8, 3840, 2160, measure)
-	if points != 8 {
-		t.Errorf("got %dpt on a screen with room to spare, want the 8pt it was drawn at", points)
+	if got, ok := columnsThatFit(6, 4, 4000, 4000, measure); got != 4 || !ok {
+		t.Errorf("got %d columns, %v, from a shape drawn over 6 with a limit of 4, want 4 and a fit", got, ok)
 	}
-	if width, height := measure(points, columns); width > 3840 || height > 2160 {
-		t.Errorf("%dpt over %d columns needs %dx%d, over the 3840x2160 it was given", points, columns, width, height)
-	}
+}
 
-	// A screen too short for it at the size it was drawn has to get it smaller.
-	small, columns := largestThatFits(6, 8, 3, 8, 3840, 1000, measure)
-	if small >= points {
-		t.Errorf("got %dpt on a screen too short for %dpt, want smaller", small, points)
-	}
+// The search relies on the content never getting taller or narrower as columns
+// are added. If that stops holding it can stop at the wrong place.
+func TestMeasurementIsMonotonic(t *testing.T) {
+	for _, count := range []int{4, 8, 16, 32, 64} {
+		measure := fakeContent(count, 190, 6, 170, 600, 880)
 
-	// And as large as that screen can take: one point more has to be too big.
-	if _, ok := columnsThatFit(3, 8, 3840, 1000, func(c int) (int, int) { return measure(small+1, c) }); ok {
-		t.Errorf("drew at %dpt when %dpt also fits 3840x1000", small, small+1)
-	}
-	if width, height := measure(small, columns); width > 3840 || height > 1000 {
-		t.Errorf("%dpt over %d columns needs %dx%d, over the 3840x1000 it was given", small, columns, width, height)
+		prevWidth, prevHeight := measure(1)
+		for columns := 2; columns <= count; columns++ {
+			width, height := measure(columns)
+			if width < prevWidth {
+				t.Errorf("%d cores: %d columns is narrower than %d columns", count, columns, columns-1)
+			}
+			if height > prevHeight {
+				t.Errorf("%d cores: %d columns is taller than %d columns", count, columns, columns-1)
+			}
+			prevWidth, prevHeight = width, height
+		}
 	}
 }
 
@@ -166,67 +136,19 @@ func TestTheShapeDependsOnlyOnTheScreen(t *testing.T) {
 		{1200, 1400}, {3840, 2160}, {800, 900}, {2560, 1440}, {1200, 1400},
 	}
 
-	type drawnAs struct{ points, columns int }
-
-	first := map[int]drawnAs{}
+	first := map[int]int{}
 	for pass := 0; pass < 2; pass++ {
 		for i, screen := range screens {
-			points, columns := largestThatFits(6, 8, 3, 8, screen.width, screen.height, measure)
-			shape := drawnAs{points: points, columns: columns}
+			columns, _ := columnsThatFit(3, 8, screen.width, screen.height, measure)
 
 			if pass == 0 {
-				first[i] = shape
+				first[i] = columns
 				continue
 			}
 
-			if shape != first[i] {
-				t.Errorf("%dx%d drew as %+v the first time and %+v the second", screen.width, screen.height, first[i], shape)
+			if columns != first[i] {
+				t.Errorf("%dx%d drew over %d columns the first time and %d the second", screen.width, screen.height, first[i], columns)
 			}
-		}
-	}
-}
-
-// A window too small for even the smallest font gets that smallest font and
-// the shape that leaves the least to be scrolled to, rather than nothing.
-func TestAWindowTooSmallStillGetsTheSmallestDialog(t *testing.T) {
-	measure := reporterContent()
-
-	points, columns := largestThatFits(6, 8, 3, 8, 700, 300, measure)
-	if points != 6 {
-		t.Errorf("got %dpt, want the 6pt floor", points)
-	}
-	if columns < 3 {
-		t.Errorf("got %d columns, want no fewer than the 3 it was drawn as", columns)
-	}
-}
-
-// How far the font may be reduced is a fraction of whatever size the system
-// chose rather than a point size of its own. A display scaled so that
-// everything is large therefore gets the same headroom, proportionally, as one
-// that is not, which is what keeps this from being tuned to one machine.
-func TestSmallestFontSize(t *testing.T) {
-	tests := []struct{ points, want int }{
-		{points: 8, want: 6},  // walk's default, MS Shell Dlg 2 at 8pt
-		{points: 9, want: 6},  // 6.75 truncated
-		{points: 10, want: 7}, // 7.5 truncated
-		{points: 12, want: 9},
-		{points: 16, want: 12},
-		{points: 1, want: 1}, // never below a point
-		{points: 0, want: 1},
-		{points: -3, want: 1},
-	}
-
-	for _, tt := range tests {
-		if got := smallestFontSize(tt.points); got != tt.want {
-			t.Errorf("smallestFontSize(%d) = %d, want %d", tt.points, got, tt.want)
-		}
-	}
-
-	// Never larger than the size it was drawn at, or fitting a screen would
-	// turn into magnifying the dialog past what the user asked for.
-	for points := 1; points <= 72; points++ {
-		if got := smallestFontSize(points); got > points {
-			t.Errorf("smallestFontSize(%d) = %d, which is larger than the size it was drawn at", points, got)
 		}
 	}
 }
@@ -236,23 +158,107 @@ func TestSmallestFontSize(t *testing.T) {
 // search has to stay cheap on a machine with a core box for every column it
 // could use.
 func TestTheSearchStaysCheap(t *testing.T) {
-	measure := fakeContent(32, 190, 6, 170, 600, 880, 8)
+	measure := fakeContent(32, 190, 6, 170, 600, 880)
 
 	calls := 0
-	counted := func(points, columns int) (int, int) {
+	counted := func(columns int) (int, int) {
 		calls++
-		return measure(points, columns)
+		return measure(columns)
 	}
 
-	largestThatFits(6, 8, 4, 32, 3840, 2160, counted)
+	// Too small for any shape, so both halves of the search run.
+	columnsThatFit(4, 32, 1000, 1000, counted)
 
-	// Both searches halve their range, so this is a handful of steps over the
-	// font sizes times a handful over the column counts, not one measurement
-	// per pair of them.
-	if calls > 80 {
+	// Both halves halve their range, so this is a handful of measurements
+	// rather than one per column count.
+	if calls > 16 {
 		t.Errorf("the search took %d measurements, want it to halve its ranges", calls)
 	}
 	t.Logf("%d measurements", calls)
+}
+
+// boxesAcross is how many boxes the grids come to side by side, each laid out
+// over the given number of rows.
+func boxesAcross(counts []int, rows int) int {
+	across := 0
+	for _, count := range counts {
+		across += mathCeilInInt(count, rows)
+	}
+
+	return across
+}
+
+// The limit worked through the fake processors this repository builds, grid by
+// grid in the order the dialog lays them out: the fastest class first, and a
+// grid for each cache group.
+func TestMostColumnsKeepsTheCoresWithinTheLimit(t *testing.T) {
+	tests := []struct {
+		name   string
+		counts []int
+		rows   int // the fewest rows the limit allows
+		across int // how many boxes across that comes to
+	}{
+		{name: "8 cores in one grid", counts: []int{8}, rows: 1, across: 8},
+		{name: "6 cores in one grid", counts: []int{6}, rows: 1, across: 6},
+		{name: "13900, 8 P-cores beside 16 E-cores", counts: []int{8, 16}, rows: 4, across: 6},
+		{name: "13600KF, 6 P-cores beside 8 E-cores", counts: []int{6, 8}, rows: 2, across: 7},
+		{name: "9950X3D, two cache groups of 8", counts: []int{8, 8}, rows: 2, across: 8},
+		{name: "5900X, two cache groups of 6", counts: []int{6, 6}, rows: 2, across: 6},
+		{name: "64 cores in one grid", counts: []int{64}, rows: 8, across: 8},
+	}
+
+	for _, tt := range tests {
+		most := mostColumns(tt.counts, 8)
+		rows := mathCeilInInt(tt.counts[0], most)
+
+		if rows != tt.rows {
+			t.Errorf("%s: at most %d columns is %d rows, want %d", tt.name, most, rows, tt.rows)
+		}
+		if across := boxesAcross(tt.counts, rows); across != tt.across {
+			t.Errorf("%s: %d rows is %d across, want %d", tt.name, rows, across, tt.across)
+		}
+	}
+}
+
+// Whatever the grids and the limit, the answer is the widest the first grid can
+// go: at the limit or under it, and one column more is over it.
+func TestMostColumnsIsTheWidestWithinTheLimit(t *testing.T) {
+	for first := 1; first <= 32; first++ {
+		for second := 0; second <= 32; second += 4 {
+			counts := []int{first}
+			if second > 0 {
+				counts = append(counts, second)
+			}
+
+			for limit := 1; limit <= 12; limit++ {
+				most := mostColumns(counts, limit)
+				if most < 1 || most > first {
+					t.Fatalf("%v within %d: %d columns, want 1 to %d", counts, limit, most, first)
+				}
+
+				// Over the limit is only allowed when even one column is.
+				if across := boxesAcross(counts, mathCeilInInt(first, most)); across > limit && boxesAcross(counts, first) <= limit {
+					t.Errorf("%v within %d: %d columns comes to %d across", counts, limit, most, across)
+				}
+
+				if most < first {
+					if across := boxesAcross(counts, mathCeilInInt(first, most+1)); across <= limit {
+						t.Errorf("%v within %d: stopped at %d columns, but %d is only %d across", counts, limit, most, most+1, across)
+					}
+				}
+			}
+		}
+	}
+}
+
+// A machine with more grids than the limit still gets a column for each.
+func TestMostColumnsIsNeverLessThanOne(t *testing.T) {
+	if got := mostColumns([]int{1, 1, 1, 1, 1, 1, 1, 1, 1}, 8); got != 1 {
+		t.Errorf("nine grids of one within 8: got %d columns, want 1", got)
+	}
+	if got := mostColumns(nil, 8); got != 1 {
+		t.Errorf("no grids: got %d columns, want 1", got)
+	}
 }
 
 // walkGrid models how walk moves a widget between cells: it empties the cell

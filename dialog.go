@@ -201,12 +201,11 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 									// ellipsise has its whole text as its minimum instead,
 									// and since the content column is held at its own
 									// minimum, one long device name would then set the
-									// width of the whole dialog and everything in it would
-									// be scaled down to fit that name. So the floor is the
-									// width they are never cut below, the ellipsis is what
-									// a name too long for the dialog does instead of
-									// widening it, and the tooltip carries the whole
-									// string either way.
+									// width of the whole dialog, however wide that came
+									// to. So the floor is the width they are never cut
+									// below, the ellipsis is what a name too long for the
+									// dialog does instead of widening it, and the tooltip
+									// carries the whole string either way.
 									//
 									// The spacer went for a reason of its own: walk bounds
 									// a column at the widest thing in it, but reads that
@@ -683,10 +682,10 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 		screen = owner.Handle()
 	}
 
-	// Draw the dialog at a size the screen can hold, before anything measures
-	// it. The font the system chose is the largest this will use here, so a
-	// dialog that already fits opens the size its author drew it and only one
-	// that does not is scaled down.
+	// Lay the core boxes out for the screen before anything measures the
+	// dialog. One that already fits opens the shape its author drew it, and
+	// only one that does not has its boxes spread out, as far as
+	// maxCoresAcross allows. The font stays the size the system chose.
 	grids = newCoreGrids(dlg, dialogScroll, dialogBody, checkBoxList.Grids())
 
 	// The one and only time the content is laid out. There is deliberately
