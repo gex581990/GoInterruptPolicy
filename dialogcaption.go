@@ -22,7 +22,8 @@ import (
 // So the minimize button minimizes the owner instead. Windows hides the windows
 // an owner owns when it is minimized and shows them again when it is restored,
 // so the whole program goes to the taskbar and comes back with the dialog
-// still on top of it.
+// still on top of it, the way the user left it: see captionWndProc for why that
+// last part needs doing by hand.
 func addCaptionButtons(dlg *walk.Dialog) {
 	hwnd := dlg.Handle()
 
@@ -50,6 +51,43 @@ func addCaptionButtons(dlg *walk.Dialog) {
 // touches this while a message is being handled.
 var captionWndProcs = map[win.HWND]uintptr{}
 
+// captionHiddenByOwner holds the dialogs Windows has hidden because their owner
+// was minimized, so that those and only those are shown again when it is
+// restored.
+var captionHiddenByOwner = map[win.HWND]bool{}
+
+// The lParam of the WM_SHOWWINDOW Windows sends an owned window as its owner is
+// minimized or restored. tailscale/win does not define them.
+const (
+	swParentClosing = 1
+	swParentOpening = 3
+)
+
+// ownerShowChange is what a WM_SHOWWINDOW says about the owner of the window it
+// was sent to.
+type ownerShowChange int
+
+const (
+	ownerUnchanged ownerShowChange = iota
+	ownerMinimizing
+	ownerRestoring
+)
+
+// ownerShowChangeOf reads a WM_SHOWWINDOW. A window is hidden as its owner is
+// minimized and shown as its owner is restored; any other WM_SHOWWINDOW, such as
+// one from ShowWindow, which sends an lParam of zero, says nothing about the
+// owner.
+func ownerShowChangeOf(wParam, lParam uintptr) ownerShowChange {
+	switch {
+	case wParam == 0 && lParam == swParentClosing:
+		return ownerMinimizing
+	case wParam != 0 && lParam == swParentOpening:
+		return ownerRestoring
+	}
+
+	return ownerUnchanged
+}
+
 // captionWndProcPtr is made once, rather than once per dialog: a callback into
 // Go from Windows is never freed, and a program only gets a fixed number of
 // them.
@@ -69,9 +107,32 @@ func captionWndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			}
 		}
 
+	case win.WM_SHOWWINDOW:
+		switch ownerShowChangeOf(wParam, lParam) {
+		case ownerMinimizing:
+			// Let Windows hide the dialog as it would, and remember that it did.
+			captionHiddenByOwner[hwnd] = true
+
+		case ownerRestoring:
+			if !captionHiddenByOwner[hwnd] {
+				break
+			}
+			delete(captionHiddenByOwner, hwnd)
+
+			// Left to the default handling, the dialog is shown again the way
+			// SW_SHOWNOACTIVATE shows a window, which like SW_SHOWNORMAL returns
+			// a maximized or snapped window to its original size and position:
+			// for this dialog, where it first opened. SW_SHOWNA shows it in the
+			// size and position it has, still maximized or snapped, and like
+			// SW_SHOWNOACTIVATE leaves activation to Windows.
+			win.ShowWindow(hwnd, win.SW_SHOWNA)
+			return 0
+		}
+
 	case win.WM_NCDESTROY:
 		// The last message a window gets, so the last time prev is needed.
 		defer delete(captionWndProcs, hwnd)
+		delete(captionHiddenByOwner, hwnd)
 	}
 
 	return win.CallWindowProc(prev, hwnd, msg, wParam, lParam)

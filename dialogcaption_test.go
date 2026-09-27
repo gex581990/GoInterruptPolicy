@@ -22,3 +22,27 @@ func TestIsMinimizeCommandIgnoresTheSystemsOwnBits(t *testing.T) {
 		}
 	}
 }
+
+// Only the WM_SHOWWINDOW sent as the owner is minimized or restored is about the
+// owner. The one ShowWindow sends carries an lParam of zero whether it shows or
+// hides, and must be left to the default handling.
+func TestOwnerShowChangeOf(t *testing.T) {
+	tests := []struct {
+		name           string
+		wParam, lParam uintptr
+		want           ownerShowChange
+	}{
+		{name: "hidden as the owner is minimized", wParam: 0, lParam: swParentClosing, want: ownerMinimizing},
+		{name: "shown as the owner is restored", wParam: 1, lParam: swParentOpening, want: ownerRestoring},
+		{name: "shown by ShowWindow", wParam: 1, lParam: 0, want: ownerUnchanged},
+		{name: "hidden by ShowWindow", wParam: 0, lParam: 0, want: ownerUnchanged},
+		{name: "a show that claims the owner is closing", wParam: 1, lParam: swParentClosing, want: ownerUnchanged},
+		{name: "a hide that claims the owner is opening", wParam: 0, lParam: swParentOpening, want: ownerUnchanged},
+	}
+
+	for _, tt := range tests {
+		if got := ownerShowChangeOf(tt.wParam, tt.lParam); got != tt.want {
+			t.Errorf("%s: got %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
