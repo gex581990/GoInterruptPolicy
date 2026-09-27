@@ -263,6 +263,63 @@ func mostColumns(counts []int, maxAcross int) int {
 	return most
 }
 
+// balanceCoreWidths shares a dialog wider than its content out between the
+// core grids in proportion to how many columns each has, so that every core
+// box is widened by the same amount. Left to itself a row shares it out equally
+// between the things in it, which on a machine of two efficiency classes would
+// widen each of the two columns of P-cores twice as much as each of the four
+// columns of E-cores beside them.
+//
+// So every level between a grid and area that lays its children out in a row
+// is given the number of core columns below it as its stretch factor. Run it
+// whenever the grids are laid out over new columns.
+func balanceCoreWidths(grids []*walk.Composite, area *walk.Composite) {
+	if area == nil {
+		return
+	}
+
+	columns := map[walk.Widget]int{}
+	var widgets []walk.Widget
+
+	for _, grid := range grids {
+		n := gridColumns(grid)
+
+		var widget walk.Widget = grid
+		for {
+			parent := widget.Parent()
+			if parent == nil {
+				break
+			}
+
+			if _, ok := columns[widget]; !ok {
+				widgets = append(widgets, widget)
+			}
+			columns[widget] += n
+
+			if parent.Handle() == area.Handle() {
+				break
+			}
+
+			next, ok := parent.(walk.Widget)
+			if !ok {
+				break
+			}
+			widget = next
+		}
+	}
+
+	for _, widget := range widgets {
+		row, ok := widget.Parent().Layout().(*walk.BoxLayout)
+		if !ok || row.Orientation() != walk.Horizontal {
+			continue
+		}
+
+		if err := row.SetStretchFactor(widget, max(columns[widget], 1)); err != nil {
+			log.Println(err)
+		}
+	}
+}
+
 // coreGrids is the dialog seen as something to be fitted to a screen.
 // Measuring goes through contentDialogSize, which walks the real widget tree,
 // so margins, group box borders, the font's own metrics and the rest are all
@@ -270,8 +327,10 @@ func mostColumns(counts []int, maxAcross int) int {
 type coreGrids struct {
 	dlg    *walk.Dialog
 	scroll *walk.ScrollView
-	body   *walk.Composite
-	grids  []*walk.Composite
+	// area is the row the core groups sit in, the level balanceCoreWidths
+	// shares a wider dialog out from.
+	area  *walk.Composite
+	grids []*walk.Composite
 	// columns is the shape the core boxes were drawn as, which came from how
 	// the machine groups them. It is the narrowest shape the search will use,
 	// so a dialog is never folded tighter than its author laid it out.
@@ -280,11 +339,11 @@ type coreGrids struct {
 
 // newCoreGrids takes the dialog as it was drawn, so call it before anything
 // has changed the shape of the core grids.
-func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, body *walk.Composite, grids []*walk.Composite) coreGrids {
+func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, area *walk.Composite, grids []*walk.Composite) coreGrids {
 	c := coreGrids{
 		dlg:    dlg,
 		scroll: scroll,
-		body:   body,
+		area:   area,
 		grids:  grids,
 	}
 
@@ -304,11 +363,6 @@ func (c coreGrids) empty() bool {
 // only the last of them is the one to lay out.
 func (c coreGrids) apply(columns int) {
 	setGridRows(c.grids, rowsForColumns(c.grids, columns))
-
-	// Re-cap the content column last: a cap left over from another shape would
-	// hold the content at a width that shape wanted, and the measurement taken
-	// next would report that width rather than this shape's own.
-	pinContentWidth(c.body)
 }
 
 // fitDialogAtOpen lays the core boxes out to fit a screen of the given work
@@ -319,7 +373,8 @@ func (c coreGrids) apply(columns int) {
 // before the dialog is shown, and again when the processor list is switched on
 // or off, since that changes how much there is to lay out. It does not run in
 // between: nothing watches the window, so resizing shows more of the content or
-// less of it and changes nothing else.
+// less of it, and shares any width over what it needs out between the boxes,
+// but never changes how the cores are arranged.
 //
 // That is deliberate. Changing the row count changes the shape of the dialog,
 // and doing that as a window is dragged would mean the thing changing under
@@ -358,6 +413,7 @@ func fitDialogAtOpen(c coreGrids, area walk.Size) {
 	columns, _ := columnsThatFit(c.columns, most, area.Width, area.Height, measure)
 
 	c.apply(columns)
+	balanceCoreWidths(c.grids, c.area)
 
 	// Moving a widget to another cell does not ask for a layout on its own, so
 	// say so here rather than leave the dialog drawn as whatever the search
