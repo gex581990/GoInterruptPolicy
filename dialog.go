@@ -695,6 +695,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	fitDialogAtOpen(grids, workArea(screen).Size())
 
 	startDialogAtContentSize(dlg, dialogScroll, owner)
+	addCaptionButtons(dlg)
 
 	return dlg.Run(), *device, nil
 }
