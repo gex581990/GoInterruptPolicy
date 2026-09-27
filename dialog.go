@@ -154,6 +154,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 		},
 		Layout: VBox{
 			MarginsZero: true,
+			Alignment:   AlignHFarVFar,
 		},
 		Children: []Widget{
 			// Everything but the OK / Cancel row scrolls, so those two stay
@@ -769,10 +770,12 @@ func (c *CheckBoxList) createEffClass(bits *Bits, effIdx, effLen int, cores [][]
 	}
 
 	// Keep the grid on a composite of its own even here, so that every grid
-	// setGridRows has to lay out again is the same kind of thing.
+	// setGridRows has to lay out again is the same kind of thing. The group box
+	// keeps the default margins the grid used to have when it was the group
+	// box's own layout, so the boxes do not sit against its border.
 	return GroupBox{
 		Title:    EffName(effIdx),
-		Layout:   VBox{MarginsZero: true},
+		Layout:   VBox{},
 		Children: []Widget{grid},
 	}
 }

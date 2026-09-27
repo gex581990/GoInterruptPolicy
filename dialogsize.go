@@ -6,6 +6,7 @@ import (
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
+	"golang.org/x/sys/windows"
 )
 
 // dialogMinSize is the smallest size the user may shrink the device policy
@@ -201,19 +202,129 @@ func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWN
 // the work area of the monitor dlg is on. Use it whenever widgets are shown or
 // hidden at runtime: a ScrollView hides those changes from the layout, so walk
 // never resizes the dialog on its own.
+//
+// Only a dialog in its normal state is resized. One the user has maximized or
+// snapped stays exactly where they put it, since resizing it would take it out
+// of that state and leave it at neither size; its content is in a ScrollView,
+// so all of it is still there to scroll to.
 func fitDialogToContent(dlg *walk.Dialog, scroll *walk.ScrollView) {
 	if dlg == nil || scroll == nil {
 		return
 	}
 
-	// SizeHint builds fresh layout items from the widget tree and Win32 reports
-	// the window rectangle live, so measuring right after SetVisible works even
-	// though the layout itself only runs once the caller returns.
-	size := desiredDialogSize(dlg, scroll, dlg.Handle())
+	hwnd := dlg.Handle()
 
-	if err := dlg.SetBoundsPixels(centerBounds(dlg.BoundsPixels(), size, workArea(dlg.Handle()))); err != nil {
+	// Snapped to half the screen, a corner or a column of a snap layout. A
+	// snapped window has a size to be restored to as well, but nothing this
+	// program can call changes it and leaves the window snapped: the one call
+	// that can, ApplyWindowAction, is a Limited Access Feature that needs an
+	// unlock token from Microsoft, and SetWindowPlacement would un-snap it. So
+	// a snapped dialog is left entirely alone, and un-snaps to the size it had
+	// before it was snapped.
+	if isWindowArranged(hwnd) {
+		return
+	}
+
+	// contentDialogSize builds fresh layout items from the widget tree and
+	// Win32 reports the window rectangle live, so measuring right after
+	// SetVisible works even though the layout itself only runs once the caller
+	// returns.
+	size := desiredDialogSize(dlg, scroll, hwnd)
+
+	// Maximized: stay maximized, and change the size it will be restored to
+	// instead, so that un-maximizing gives the size the dialog would have had
+	// if the change had been made while it was not maximized.
+	if win.IsZoomed(hwnd) {
+		setRestoredSize(hwnd, size)
+		return
+	}
+
+	if err := dlg.SetBoundsPixels(centerBounds(dlg.BoundsPixels(), size, workArea(hwnd))); err != nil {
 		log.Println(err)
 	}
+}
+
+// setRestoredSize gives a maximized window a new size to be restored to, about
+// the centre of the place it was to be restored to, kept inside the work area
+// the way centerBounds keeps a normal window, and leaves it maximized.
+func setRestoredSize(hwnd win.HWND, size walk.Size) {
+	var wp win.WINDOWPLACEMENT
+	wp.Length = uint32(unsafe.Sizeof(wp))
+
+	if !win.GetWindowPlacement(hwnd, &wp) {
+		log.Println("GetWindowPlacement failed, the dialog keeps the size it was to be restored to")
+		return
+	}
+
+	// The show state that comes back is SW_SHOWMAXIMIZED, and handing it back
+	// unchanged is what keeps the window maximized.
+	restored := centerBounds(walk.RectangleFromRECT(wp.RcNormalPosition), size, workspaceArea(hwnd))
+	wp.RcNormalPosition = rectFromRectangle(restored)
+
+	if !win.SetWindowPlacement(hwnd, &wp) {
+		log.Println("SetWindowPlacement failed, the dialog keeps the size it was to be restored to")
+	}
+}
+
+// workspaceArea is the work area of the monitor closest to hwnd, in the
+// workspace coordinates that the place a maximized window is restored to is
+// kept in. The zero Rectangle is returned when the monitor cannot be
+// determined, which centerBounds takes as no area to keep the window inside.
+//
+// Microsoft documents workspace coordinate (0,0) as the top left of the work
+// area. This takes that per monitor, as window managers commonly do: screen
+// coordinates less the room the taskbar and other appbars take at the top and
+// left of the monitor, so the work area starts where the monitor does. Were it
+// taken from the main monitor's work area instead, the difference would only
+// show on a second monitor while the main one's taskbar is at its top or left,
+// and then only as the width of that taskbar.
+func workspaceArea(hwnd win.HWND) walk.Rectangle {
+	var mi win.MONITORINFO
+	mi.CbSize = uint32(unsafe.Sizeof(mi))
+
+	monitor := win.MonitorFromWindow(hwnd, win.MONITOR_DEFAULTTONEAREST)
+	if monitor == 0 || !win.GetMonitorInfo(monitor, &mi) {
+		return walk.Rectangle{}
+	}
+
+	return workspaceFromMonitor(mi.RcMonitor, mi.RcWork)
+}
+
+// workspaceFromMonitor is a monitor's work area in workspace coordinates.
+func workspaceFromMonitor(monitor, work win.RECT) walk.Rectangle {
+	area := walk.RectangleFromRECT(work)
+	area.X, area.Y = int(monitor.Left), int(monitor.Top)
+
+	return area
+}
+
+// rectFromRectangle is the win.RECT covering r, the reverse of
+// walk.RectangleFromRECT.
+func rectFromRectangle(r walk.Rectangle) win.RECT {
+	return win.RECT{
+		Left:   int32(r.X),
+		Top:    int32(r.Y),
+		Right:  int32(r.X + r.Width),
+		Bottom: int32(r.Y + r.Height),
+	}
+}
+
+// isWindowArrangedProc is looked up when first used rather than linked: the
+// call has no import library, and Windows before 10 version 1903 does not have
+// it at all.
+var isWindowArrangedProc = windows.NewLazySystemDLL("user32.dll").NewProc("IsWindowArranged")
+
+// isWindowArranged says whether the user has snapped hwnd, which Windows treats
+// as a state of its own like maximized. A Windows too old to snap that way
+// reports nothing as snapped.
+func isWindowArranged(hwnd win.HWND) bool {
+	if isWindowArrangedProc.Find() != nil {
+		return false
+	}
+
+	arranged, _, _ := isWindowArrangedProc.Call(uintptr(hwnd))
+
+	return arranged != 0
 }
 
 // startDialogAtContentSize makes dlg open at the size its content needs instead

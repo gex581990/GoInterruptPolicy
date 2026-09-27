@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/tailscale/walk"
+	"github.com/tailscale/win"
 )
 
 func TestCapToSize(t *testing.T) {
@@ -199,5 +200,83 @@ func TestWidthIn96DPIRoundsUp(t *testing.T) {
 func TestWidthIn96DPIHandlesAnUnknownDPI(t *testing.T) {
 	if got := widthIn96DPI(845, 0); got != 845 {
 		t.Errorf("widthIn96DPI(845, 0) = %d, want the width unchanged", got)
+	}
+}
+
+// Workspace coordinates start at the corner of the work area, so a monitor's
+// work area in them starts where the monitor does and is as big as the work
+// area is, wherever the taskbar is.
+func TestWorkspaceFromMonitor(t *testing.T) {
+	tests := []struct {
+		name          string
+		monitor, work win.RECT
+		want          walk.Rectangle
+	}{
+		{
+			name:    "taskbar at the bottom",
+			monitor: win.RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1080},
+			work:    win.RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1040},
+			want:    walk.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1040},
+		},
+		{
+			name:    "taskbar at the top",
+			monitor: win.RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1080},
+			work:    win.RECT{Left: 0, Top: 40, Right: 1920, Bottom: 1080},
+			want:    walk.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1040},
+		},
+		{
+			name:    "taskbar on the left",
+			monitor: win.RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1080},
+			work:    win.RECT{Left: 60, Top: 0, Right: 1920, Bottom: 1080},
+			want:    walk.Rectangle{X: 0, Y: 0, Width: 1860, Height: 1080},
+		},
+		{
+			name:    "a second monitor with no taskbar",
+			monitor: win.RECT{Left: 1920, Top: 0, Right: 3200, Bottom: 1024},
+			work:    win.RECT{Left: 1920, Top: 0, Right: 3200, Bottom: 1024},
+			want:    walk.Rectangle{X: 1920, Y: 0, Width: 1280, Height: 1024},
+		},
+		{
+			name:    "a second monitor with its own taskbar at the top",
+			monitor: win.RECT{Left: 1920, Top: 0, Right: 3200, Bottom: 1024},
+			work:    win.RECT{Left: 1920, Top: 40, Right: 3200, Bottom: 1024},
+			want:    walk.Rectangle{X: 1920, Y: 0, Width: 1280, Height: 984},
+		},
+	}
+
+	for _, tt := range tests {
+		if got := workspaceFromMonitor(tt.monitor, tt.work); got != tt.want {
+			t.Errorf("%s: got %+v, want %+v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// rectFromRectangle has to be the exact reverse of walk.RectangleFromRECT, or
+// every restore size written back would drift by the difference.
+func TestRectFromRectangleRoundTrips(t *testing.T) {
+	for _, r := range []win.RECT{
+		{Left: 0, Top: 0, Right: 1920, Bottom: 1040},
+		{Left: 710, Top: 370, Right: 1210, Bottom: 670},
+		{Left: -1920, Top: -200, Right: -100, Bottom: 800},
+	} {
+		if got := rectFromRectangle(walk.RectangleFromRECT(r)); got != r {
+			t.Errorf("%+v came back as %+v", r, got)
+		}
+	}
+}
+
+// A maximized dialog's restore size grows about the centre it had, but not up
+// past the top of the work area: restored there it would have no title bar on
+// screen to be dragged by.
+func TestARestoreSizeGrowingNearTheTopStaysOnScreen(t *testing.T) {
+	monitor := win.RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1080}
+	work := win.RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1040}
+	normal := win.RECT{Left: 800, Top: 20, Right: 1100, Bottom: 120}
+
+	got := rectFromRectangle(centerBounds(walk.RectangleFromRECT(normal), walk.Size{Width: 300, Height: 600}, workspaceFromMonitor(monitor, work)))
+
+	want := win.RECT{Left: 800, Top: 0, Right: 1100, Bottom: 600}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }

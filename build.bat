@@ -7,7 +7,7 @@ SET filename=GoInterruptPolicy
 :loop
 CLS
 
-gocritic check -enableAll -disable="#experimental,#opinionated,#commentedOutCode" ./...
+go-critic check -enableAll -disable="#experimental,#opinionated,#commentedOutCode" ./...
 
 IF exist %filename%.exe (
     FOR /F "usebackq" %%A IN ('%filename%.exe') DO SET /A beforeSize=%%~zA
