@@ -8,9 +8,10 @@ REM from the matching GetCpuInformation.<name>.go, so what comes out is the
 REM real dialog laid out for that machine. They are for looking at, not for
 REM shipping.
 REM
-REM Nothing here is built without the debug tag, and the debug tag on its own
-REM builds nothing at all: it takes the real GetCpuInformation out, and every
-REM fake one needs a vendor and a model named as well.
+REM Nothing here is built without the debug tag. On its own that tag builds the
+REM program for the real processor, as run.bat does; the real GetCpuInformation
+REM only makes way for a fake one when a vendor is named as well, and every fake
+REM one needs its model named too.
 
 SET GOOS=windows
 SET GOARCH=amd64

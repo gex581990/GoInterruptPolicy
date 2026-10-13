@@ -1,4 +1,4 @@
-//go:build !debug
+//go:build !(debug && (Intel || AMD))
 
 package main
 
