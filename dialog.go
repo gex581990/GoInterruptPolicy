@@ -367,7 +367,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 													// minimum and walk leaves the dialog at its old
 													// size. Lay it out again and grow or shrink it
 													// here instead.
-													fitDialogAtOpen(grids, workArea(dlg.Handle()).Size())
+													fitDialogAtOpen(grids, layoutArea(dlg))
 													fitDialogToContent(dlg, dialogScroll)
 												},
 											},

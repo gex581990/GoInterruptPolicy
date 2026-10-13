@@ -145,6 +145,29 @@ func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWN
 		int(win.GetSystemMetricsForDpi(win.SM_CYHSCROLL, dpi)))
 }
 
+// layoutArea is the room to arrange the core boxes for when the content of dlg
+// changes while it is open. Normally that is the work area of its monitor,
+// since fitDialogToContent then resizes the dialog to whatever shape is chosen.
+// A snapped dialog is the exception: fitDialogToContent leaves it at the size
+// the snap gave it, so its boxes are arranged for that size instead, less the
+// width of the vertical scroll bar. A snap fixes the height, so the content
+// will usually be taller than it and scroll, and walk reserves no room for that
+// bar, the same as capToSize allows for.
+//
+// A dialog snapped after the content last changed keeps the boxes arranged
+// for the size it had then, since resizing never rearranges them.
+func layoutArea(dlg *walk.Dialog) walk.Size {
+	hwnd := dlg.Handle()
+	if !isWindowArranged(hwnd) {
+		return workArea(hwnd).Size()
+	}
+
+	size := dlg.SizePixels()
+	size.Width -= int(win.GetSystemMetricsForDpi(win.SM_CXVSCROLL, uint32(dlg.DPI())))
+
+	return size
+}
+
 // fitDialogToContent resizes dlg to the size its content asks for, capped to
 // the work area of the monitor dlg is on. Use it whenever widgets are shown or
 // hidden at runtime: a ScrollView hides those changes from the layout, so walk
