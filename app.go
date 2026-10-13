@@ -127,7 +127,7 @@ func main() {
 				return
 			}
 
-			if DeviceInstallParams.Flags&DI_NEEDREBOOT != 0 {
+			if DeviceInstallParams.Flags&(DI_NEEDREBOOT|DI_NEEDRESTART) != 0 {
 				fmt.Println("Device could not be restarted. Changes will take effect the next time you reboot.")
 			} else {
 				fmt.Println("Device successfully restarted.")
@@ -564,7 +564,7 @@ func (mw *MyMainWindow) SetNewDevice(orgItem *Device, newItem *Device) Device {
 				return *orgItem
 			}
 
-			if DeviceInstallParams.Flags&DI_NEEDREBOOT != 0 {
+			if DeviceInstallParams.Flags&(DI_NEEDREBOOT|DI_NEEDRESTART) != 0 {
 				walk.MsgBox(mw.WindowBase.Form(), "Notice", "Device could not be restarted. Changes will take effect the next time you reboot.", walk.MsgBoxIconWarning)
 			} else {
 				walk.MsgBox(mw.WindowBase.Form(), "Notice", "Device successfully restarted.", walk.MsgBoxIconInformation)
