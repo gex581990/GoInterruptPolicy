@@ -134,15 +134,74 @@ func scrolledContentSize(items walk.ContainerLayoutItem, scroll *walk.ScrollView
 }
 
 // desiredDialogSize returns the outer size dlg needs to show the contents of
-// scroll without scrolling, capped to the work area of the monitor next to
-// screen. Everything is measured in native pixels, which keeps the result
-// correct on any dpi.
-func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, screen win.HWND) walk.Size {
+// scroll without scrolling, capped to available. Everything is measured in
+// native pixels, which keeps the result correct on any dpi.
+func desiredDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView, available walk.Size) walk.Size {
 	dpi := uint32(dlg.DPI())
 
-	return capToSize(contentDialogSize(dlg, scroll), workArea(screen).Size(),
+	return capToSize(contentDialogSize(dlg, scroll), available,
 		int(win.GetSystemMetricsForDpi(win.SM_CXVSCROLL, dpi)),
 		int(win.GetSystemMetricsForDpi(win.SM_CYHSCROLL, dpi)))
+}
+
+// frameInsets are how far a window's rectangle reaches past the frame Windows
+// draws for it, on each side. Windows 10 and 11 give a resizable window borders
+// to drag by on its left, right and bottom that are part of its rectangle but
+// are never drawn, so a window placed by its rectangle against the edge of the
+// work area stops that far short of it.
+type frameInsets struct {
+	left, top, right, bottom int
+}
+
+// invisibleFrame measures the borders of hwnd that are not drawn, by comparing
+// its rectangle with the frame DWM draws. It only means anything for a window
+// that is on screen in its normal state. No insets come back when DWM cannot
+// say.
+func invisibleFrame(hwnd win.HWND) frameInsets {
+	var window, drawn win.RECT
+	if !win.GetWindowRect(hwnd, &window) {
+		return frameInsets{}
+	}
+
+	if win.FAILED(win.DwmGetWindowAttribute(hwnd, win.DWMWA_EXTENDED_FRAME_BOUNDS, unsafe.Pointer(&drawn), uint32(unsafe.Sizeof(drawn)))) {
+		return frameInsets{}
+	}
+
+	return insetsBetween(window, drawn)
+}
+
+// insetsBetween is how far window reaches past drawn on each side. A drawn
+// frame that is empty or does not lie inside window is not the frame of that
+// window, and gives no insets.
+func insetsBetween(window, drawn win.RECT) frameInsets {
+	if drawn.Right <= drawn.Left || drawn.Bottom <= drawn.Top ||
+		drawn.Left < window.Left || drawn.Top < window.Top ||
+		drawn.Right > window.Right || drawn.Bottom > window.Bottom {
+		return frameInsets{}
+	}
+
+	return frameInsets{
+		left:   int(drawn.Left - window.Left),
+		top:    int(drawn.Top - window.Top),
+		right:  int(window.Right - drawn.Right),
+		bottom: int(window.Bottom - drawn.Bottom),
+	}
+}
+
+// outset is area grown by the insets on each side: the room a window's
+// rectangle may take for its drawn frame to fill area exactly. An empty area,
+// meaning no monitor was found, stays empty.
+func (in frameInsets) outset(area walk.Rectangle) walk.Rectangle {
+	if area.Width <= 0 || area.Height <= 0 {
+		return area
+	}
+
+	return walk.Rectangle{
+		X:      area.X - in.left,
+		Y:      area.Y - in.top,
+		Width:  area.Width + in.left + in.right,
+		Height: area.Height + in.top + in.bottom,
+	}
 }
 
 // layoutArea is the room to arrange the core boxes for when the content of dlg
@@ -199,17 +258,24 @@ func fitDialogToContent(dlg *walk.Dialog, scroll *walk.ScrollView) {
 	// Win32 reports the window rectangle live, so measuring right after
 	// SetVisible works even though the layout itself only runs once the caller
 	// returns.
-	size := desiredDialogSize(dlg, scroll, hwnd)
-
+	//
 	// Maximized: stay maximized, and change the size it will be restored to
 	// instead, so that un-maximizing gives the size the dialog would have had
-	// if the change had been made while it was not maximized.
+	// if the change had been made while it was not maximized. Its borders
+	// cannot be measured while it is maximized, so this one is fitted to the
+	// work area by its rectangle.
 	if win.IsZoomed(hwnd) {
-		setRestoredSize(hwnd, size)
+		setRestoredSize(hwnd, desiredDialogSize(dlg, scroll, workArea(hwnd).Size()))
 		return
 	}
 
-	if err := dlg.SetBoundsPixels(centerBounds(dlg.BoundsPixels(), size, workArea(hwnd))); err != nil {
+	// Let the rectangle reach past the work area by the borders that are not
+	// drawn, so a dialog too big for the screen has the frame the user sees
+	// against the edges of the work area, the way a snapped window's is.
+	area := invisibleFrame(hwnd).outset(workArea(hwnd))
+	size := desiredDialogSize(dlg, scroll, area.Size())
+
+	if err := dlg.SetBoundsPixels(centerBounds(dlg.BoundsPixels(), size, area)); err != nil {
 		log.Println(err)
 	}
 }
@@ -318,7 +384,7 @@ func startDialogAtContentSize(dlg *walk.Dialog, scroll *walk.ScrollView, owner w
 		screen = owner.Handle()
 	}
 
-	if err := dlg.SetMinMaxSizePixels(desiredDialogSize(dlg, scroll, screen), walk.Size{}); err != nil {
+	if err := dlg.SetMinMaxSizePixels(desiredDialogSize(dlg, scroll, workArea(screen).Size()), walk.Size{}); err != nil {
 		log.Println(err)
 		return
 	}

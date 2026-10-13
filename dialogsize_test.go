@@ -249,3 +249,90 @@ func TestARestoreSizeGrowingNearTheTopStaysOnScreen(t *testing.T) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
+
+// The borders Windows 10 and 11 do not draw are on the left, right and bottom
+// of a window; the top of its rectangle is where its title bar starts.
+func TestInsetsBetween(t *testing.T) {
+	window := win.RECT{Left: 100, Top: 50, Right: 1100, Bottom: 850}
+
+	tests := []struct {
+		name  string
+		drawn win.RECT
+		want  frameInsets
+	}{
+		{
+			name:  "borders on three sides at 300%",
+			drawn: win.RECT{Left: 121, Top: 50, Right: 1079, Bottom: 829},
+			want:  frameInsets{left: 21, top: 0, right: 21, bottom: 21},
+		},
+		{
+			name:  "no borders that are not drawn",
+			drawn: window,
+			want:  frameInsets{},
+		},
+		{
+			name:  "drawn frame bigger than the window is not its frame",
+			drawn: win.RECT{Left: 90, Top: 50, Right: 1100, Bottom: 850},
+			want:  frameInsets{},
+		},
+		{
+			name:  "drawn frame elsewhere is not its frame",
+			drawn: win.RECT{Left: 2000, Top: 50, Right: 2500, Bottom: 850},
+			want:  frameInsets{},
+		},
+		{
+			name:  "empty drawn frame",
+			drawn: win.RECT{Left: 500, Top: 400, Right: 500, Bottom: 400},
+			want:  frameInsets{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := insetsBetween(window, tt.drawn); got != tt.want {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOutset(t *testing.T) {
+	in := frameInsets{left: 21, top: 0, right: 21, bottom: 21}
+
+	if got, want := in.outset(walk.Rectangle{X: 0, Y: 0, Width: 3840, Height: 2016}), (walk.Rectangle{X: -21, Y: 0, Width: 3882, Height: 2037}); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+
+	// No monitor found: nothing to keep the window inside, and still nothing.
+	if got := in.outset(walk.Rectangle{}); got != (walk.Rectangle{}) {
+		t.Errorf("an empty area came out as %+v", got)
+	}
+
+	area := walk.Rectangle{X: 10, Y: 20, Width: 300, Height: 400}
+	if got := (frameInsets{}).outset(area); got != area {
+		t.Errorf("no insets changed the area to %+v", got)
+	}
+}
+
+// What the insets are for: a dialog taller than the screen ends with the
+// frame the user sees on the taskbar, not a strip of desktop short of it, and
+// its title bar at the top of the work area.
+func TestACappedDialogsDrawnFrameMeetsTheWorkArea(t *testing.T) {
+	const vScroll, hScroll = 51, 51 // at 288 dpi
+
+	work := walk.Rectangle{X: 0, Y: 0, Width: 3840, Height: 2016}
+	in := frameInsets{left: 21, top: 0, right: 21, bottom: 21}
+	area := in.outset(work)
+
+	content := walk.Size{Width: 1500, Height: 3000}
+	old := walk.Rectangle{X: 1170, Y: 300, Width: 1500, Height: 1200}
+
+	bounds := centerBounds(old, capToSize(content, area.Size(), vScroll, hScroll), area)
+
+	if top := bounds.Y + in.top; top != work.Y {
+		t.Errorf("drawn top at %d, want the top of the work area at %d", top, work.Y)
+	}
+	if bottom := bounds.Y + bounds.Height - in.bottom; bottom != work.Y+work.Height {
+		t.Errorf("drawn bottom at %d, want the bottom of the work area at %d", bottom, work.Y+work.Height)
+	}
+}
