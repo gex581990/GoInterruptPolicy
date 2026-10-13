@@ -226,6 +226,7 @@ func main() {
 								mw.restartPopup = true
 								for arrayIndex, selectionIndex := range SelectedIndexes {
 									mw.tv.Model().(*Model).items[selectionIndex] = mw.SetNewDevice(&mw.tv.Model().(*Model).items[selectionIndex], &d[arrayIndex])
+									mw.updateFullList(mw.tv.Model().(*Model).items[selectionIndex])
 								}
 
 								for _, selectionIndex := range SelectedIndexes {
@@ -273,12 +274,15 @@ func main() {
 				Model:    mw.model,
 				AssignTo: &mw.tv,
 				OnKeyUp: func(key walk.Key) {
+					// The rows the table shows, which while a search is shown
+					// are not mw.model's.
+					items := mw.tv.Model().(*Model).items
 					i := mw.tv.CurrentIndex()
 					if i == -1 {
 						i = 0
 					}
-					for ; i < len(mw.model.items); i++ {
-						item := &mw.model.items[i]
+					for ; i < len(items); i++ {
+						item := &items[i]
 						if item.DeviceDesc != "" && key.String() == item.DeviceDesc[0:1] {
 							if err := mw.tv.SetCurrentIndex(i); err != nil {
 								log.Println(err)
@@ -366,7 +370,8 @@ func main() {
 							return strings.Join(result, ",")
 						},
 						LessFunc: func(i, j int) bool {
-							return mw.model.items[i].AssignmentSetOverride < mw.model.items[j].AssignmentSetOverride
+							items := mw.tv.Model().(*Model).items
+							return items[i].AssignmentSetOverride < items[j].AssignmentSetOverride
 						},
 					},
 					{
@@ -395,7 +400,8 @@ func main() {
 							return interruptType(value.(Bits))
 						},
 						LessFunc: func(i, j int) bool {
-							return mw.model.items[i].InterruptTypeMap < mw.model.items[j].InterruptTypeMap
+							items := mw.tv.Model().(*Model).items
+							return items[i].InterruptTypeMap < items[j].InterruptTypeMap
 						},
 					},
 					{
@@ -488,8 +494,23 @@ func (mw *MyMainWindow) lb_ItemActivated() {
 
 	mw.restartPopup = true
 	mw.tv.Model().(*Model).items[currentIndex] = mw.SetNewDevice(&mw.tv.Model().(*Model).items[currentIndex], &d[0])
+	mw.updateFullList(mw.tv.Model().(*Model).items[currentIndex])
 
 	mw.tv.UpdateItem(currentIndex)
+}
+
+// updateFullList puts d into the full device list in place of the device it
+// is. While a search is shown the table holds copies of the devices found, so
+// an edit made there has to be copied back, or changing or clearing the search
+// shows the device as it was, and the next edit of it starts from that and can
+// write the old values back.
+func (mw *MyMainWindow) updateFullList(d Device) {
+	for i := range mw.model.items {
+		if mw.model.items[i].Idata.DevInst == d.Idata.DevInst {
+			mw.model.items[i] = d
+			return
+		}
+	}
 }
 
 func (mw *MyMainWindow) SetNewDevice(orgItem *Device, newItem *Device) Device {
