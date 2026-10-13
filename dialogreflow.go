@@ -271,9 +271,9 @@ func mostColumns(counts []int, maxAcross int) int {
 // widen each of the two columns of P-cores twice as much as each of the four
 // columns of E-cores beside them.
 //
-// So every level between a grid and area that lays its children out in a row
-// is given the number of core columns below it as its stretch factor. Run it
-// whenever the grids are laid out over new columns.
+// So every level between a grid and area that lays its children out in a row,
+// or in the columns of a grid, is given the number of core columns below it as
+// its stretch factor. Run it whenever the grids are laid out over new columns.
 func balanceCoreWidths(grids []*walk.Composite, area *walk.Composite) {
 	if area == nil {
 		return
@@ -310,12 +310,42 @@ func balanceCoreWidths(grids []*walk.Composite, area *walk.Composite) {
 	}
 
 	for _, widget := range widgets {
-		row, ok := widget.Parent().Layout().(*walk.BoxLayout)
-		if !ok || row.Orientation() != walk.Horizontal {
+		parent := widget.Parent()
+
+		// A group box keeps its children in a composite inside it, so the way
+		// up from a grid passes that composite too, with the group box as its
+		// parent. The group box's layout is the composite's own, which does not
+		// hold the composite itself, and there is nothing to set there.
+		if children := parent.Children(); children == nil || !children.Contains(widget) {
 			continue
 		}
 
-		if err := row.SetStretchFactor(widget, max(columns[widget], 1)); err != nil {
+		factor := max(columns[widget], 1)
+
+		var err error
+		switch layout := parent.Layout().(type) {
+		case *walk.BoxLayout:
+			if layout.Orientation() != walk.Horizontal {
+				continue
+			}
+			err = layout.SetStretchFactor(widget, factor)
+
+		case *walk.GridLayout:
+			// A grid shares a wider dialog out between its columns, so the
+			// factor goes on the column the widget is in. The cache groups
+			// that put their efficiency classes in a grid give it four
+			// columns, so up to four classes each have one to themselves.
+			cell, ok := layout.Range(widget)
+			if !ok || cell.Width != 1 {
+				continue
+			}
+			err = layout.SetColumnStretchFactor(cell.X, factor)
+
+		default:
+			continue
+		}
+
+		if err != nil {
 			log.Println(err)
 		}
 	}

@@ -21,7 +21,7 @@ REM Vendor and model, as the build tags spell them, which is not always how the
 REM file names spell them: GetCpuInformation.11400.go is built with 11400H, and
 REM GetCpuInformation.5900x.go with 5900X. A new GetCpuInformation.*.go needs a
 REM line here too, and the first line of that file says what to put.
-SET models=Intel:11400H Intel:11400HPECORES Intel:13600KF Intel:13900 Intel:13900WithoutHT Intel:Fake8Threads Intel:FakeNumaCCD12Core AMD:5900X AMD:9950X3D AMD:Fake2CCD12CoreHT
+SET models=Intel:11400H Intel:11400HPECORES Intel:13600KF Intel:13900 Intel:13900WithoutHT Intel:Fake8Threads Intel:FakeNumaCCD12Core Intel:FakeHybrid2LLC AMD:5900X AMD:9950X3D AMD:Fake2CCD12CoreHT
 
 IF NOT EXIST "%outdir%" MKDIR "%outdir%"
 
