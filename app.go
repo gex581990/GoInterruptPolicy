@@ -214,8 +214,8 @@ func main() {
 								}
 
 								mw.restartPopup = true
-								for _, selectionIndex := range SelectedIndexes {
-									mw.tv.Model().(*Model).items[selectionIndex] = mw.SetNewDevice(&mw.tv.Model().(*Model).items[selectionIndex], &d)
+								for arrayIndex, selectionIndex := range SelectedIndexes {
+									mw.tv.Model().(*Model).items[selectionIndex] = mw.SetNewDevice(&mw.tv.Model().(*Model).items[selectionIndex], &d[arrayIndex])
 								}
 
 								for _, selectionIndex := range SelectedIndexes {
@@ -466,7 +466,7 @@ func (mw *MyMainWindow) lb_ItemActivated() {
 	}
 
 	mw.restartPopup = true
-	mw.tv.Model().(*Model).items[currentIndex] = mw.SetNewDevice(&mw.tv.Model().(*Model).items[currentIndex], &d)
+	mw.tv.Model().(*Model).items[currentIndex] = mw.SetNewDevice(&mw.tv.Model().(*Model).items[currentIndex], &d[0])
 
 	mw.tv.UpdateItem(currentIndex)
 }

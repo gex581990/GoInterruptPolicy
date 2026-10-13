@@ -96,8 +96,12 @@ func ListDevices(devices []Device) []*ComboBoxIntStruct {
 	return out
 }
 
-func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
+// RunDialog shows the device policy dialog for devices and returns, after it
+// closes, each of them in the same order with the settings changed in the
+// dialog applied, and nothing else.
+func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 	var dlg *walk.Dialog
+	var edits dialogEdits
 	var db *walk.DataBinder
 	var acceptPB, cancelPB *walk.PushButton
 	var cpuArrayComView *walk.Composite
@@ -512,7 +516,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 													walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
 												}
 
-												reg_file_value.WriteString(createRegFile(dlg, regPath, *device))
+												reg_file_value.WriteString(createRegFile(dlg, regPath, edits.apply(devices[i], *device)))
 											}
 
 											path, err := os.Getwd()
@@ -640,7 +644,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 						AssignTo: &acceptPB,
 						Text:     "OK",
 						OnClicked: func() {
-							if device.DevicePolicy == 4 && device.AssignmentSetOverride == ZeroBit {
+							if edits.leavesNoProcessor(devices, *device) {
 								walk.MsgBox(dlg, "Invalid Option", "The affinity mask must contain at least one processor.", walk.MsgBoxIconError)
 							} else {
 								if err := db.Submit(); err != nil {
@@ -663,8 +667,15 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	// Build and run the dialog in two steps instead of calling Run, so the
 	// wanted size is known before (*walk.Dialog).Show picks one.
 	if err := dialog.Create(owner); err != nil {
-		return 0, *device, err
+		return 0, nil, err
 	}
+
+	// Building the dialog is done, and what it moved while it was being built
+	// it moved on its own. Whatever moves from here on, the user moved.
+	edits = dialogEdits{opened: *device}
+	deviceMessageNumberLimitNE.ValueChanged().Attach(func() {
+		edits.limit = true
+	})
 
 	screen := dlg.Handle()
 	if owner != nil {
@@ -697,7 +708,9 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	startDialogAtContentSize(dlg, dialogScroll, owner)
 	addCaptionButtons(dlg)
 
-	return dlg.Run(), *device, nil
+	result := dlg.Run()
+
+	return result, edits.applyAll(devices, *device), nil
 }
 
 func EffName(efficiencyClass int) string {
