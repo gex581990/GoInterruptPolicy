@@ -14,17 +14,21 @@ import (
 const REG_FILE_HEADER = "Windows Registry Editor Version 5.00\n\n"
 
 var packageInfo = template.New("packageInfo")
+
+// tmplProperty is one device's section of an exported .reg file. The numbers
+// after "dword:" are hex, which is how regedit reads them back, and the MSI
+// settings are only written for a device whose MSI is on or off.
 var tmplProperty = template.Must(packageInfo.Parse(string(`[{{.RegPath}}\Interrupt Management]
 
 [{{.RegPath}}\Interrupt Management\Affinity Policy]
-"DevicePolicy"=dword:{{printf "%08d" .Device.DevicePolicy}}
-{{if eq .Device.DevicePriority 0}}"DevicePriority"=-{{else}}"DevicePriority"=dword:{{printf "%08d" .Device.DevicePriority}}{{end}}
+"DevicePolicy"=dword:{{printf "%08x" .Device.DevicePolicy}}
+{{if eq .Device.DevicePriority 0}}"DevicePriority"=-{{else}}"DevicePriority"=dword:{{printf "%08x" .Device.DevicePriority}}{{end}}
 {{if ne .Device.DevicePolicy 4}}"AssignmentSetOverride"=-{{else}}"AssignmentSetOverride"=hex:{{.AssignmentSetOverride}}{{end}}
-
+{{if lt .Device.MsiSupported 2}}
 [{{.RegPath}}\Interrupt Management\MessageSignaledInterruptProperties]
-"MSISupported"=dword:{{printf "%08d" .Device.MsiSupported}}
-{{if eq .Device.MsiSupported 1}}{{if ne .Device.MessageNumberLimit 0}}"MessageNumberLimit"=dword:{{printf "%08d" .Device.MessageNumberLimit}}{{end}}{{else}}"MessageNumberLimit"=-{{end}}
-
+"MSISupported"=dword:{{printf "%08x" .Device.MsiSupported}}
+{{if eq .Device.MsiSupported 1}}{{if ne .Device.MessageNumberLimit 0}}"MessageNumberLimit"=dword:{{printf "%08x" .Device.MessageNumberLimit}}{{else}}"MessageNumberLimit"=-{{end}}{{else}}"MessageNumberLimit"=-{{end}}
+{{end}}
 `)))
 
 func createRegFile(dlg *walk.Dialog, regpath string, item Device) string {

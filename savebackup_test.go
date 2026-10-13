@@ -91,3 +91,69 @@ func TestRegFileDocumentRoundTripsContent(t *testing.T) {
 		}
 	}
 }
+
+const samplePath = `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\PCI\X\Device Parameters`
+
+// The whole of one device's section, so that any change to its layout shows.
+func TestRegFileSection(t *testing.T) {
+	got := createRegFile(nil, samplePath, Device{
+		DevicePolicy:          4,
+		DevicePriority:        3,
+		AssignmentSetOverride: 0xA005,
+		MsiSupported:          MSI_On,
+		MessageNumberLimit:    16,
+	})
+
+	want := `[` + samplePath + `\Interrupt Management]
+
+[` + samplePath + `\Interrupt Management\Affinity Policy]
+"DevicePolicy"=dword:00000004
+"DevicePriority"=dword:00000003
+"AssignmentSetOverride"=hex:05,a0
+
+[` + samplePath + `\Interrupt Management\MessageSignaledInterruptProperties]
+"MSISupported"=dword:00000001
+"MessageNumberLimit"=dword:00000010
+
+`
+	if got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A .reg file is read with the number after "dword:" in hex. Written in
+// decimal, an MSI limit of 16 came back from a backup as 22, and 2048 as 8264.
+func TestRegFileWritesDwordsInHex(t *testing.T) {
+	for limit, want := range map[uint32]string{
+		8:    `"MessageNumberLimit"=dword:00000008`,
+		10:   `"MessageNumberLimit"=dword:0000000a`,
+		16:   `"MessageNumberLimit"=dword:00000010`,
+		2048: `"MessageNumberLimit"=dword:00000800`,
+	} {
+		section := createRegFile(nil, samplePath, Device{MsiSupported: MSI_On, MessageNumberLimit: limit})
+		if !strings.Contains(section, want+"\n") {
+			t.Errorf("a limit of %d is not written as %s:\n%s", limit, want, section)
+		}
+	}
+}
+
+// A backup of a device without an MSI limit removes any limit set since,
+// instead of leaving it there when restored.
+func TestRegFileRemovesALimitThatWasNotSet(t *testing.T) {
+	section := createRegFile(nil, samplePath, Device{MsiSupported: MSI_On})
+	if !strings.Contains(section, `"MessageNumberLimit"=-`+"\n") {
+		t.Errorf("no limit is not written as one to remove:\n%s", section)
+	}
+}
+
+// A device that reports no interrupt types has no MSI settings to back up,
+// and an MSISupported of 3 would only be an invalid one restored.
+func TestRegFileLeavesOutMSIForADeviceWithout(t *testing.T) {
+	section := createRegFile(nil, samplePath, Device{DevicePolicy: 1, MsiSupported: MSI_Invalid})
+	if strings.Contains(section, "MessageSignaledInterruptProperties") || strings.Contains(section, "MSISupported") {
+		t.Errorf("MSI settings written for a device without any:\n%s", section)
+	}
+	if !strings.HasSuffix(section, "=-\n\n") {
+		t.Errorf("the section does not end on its last value and a blank line:\n%q", section)
+	}
+}
