@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	modSetupapi = windows.NewLazyDLL("setupapi.dll")
+	modSetupapi = windows.NewLazySystemDLL("setupapi.dll")
 
 	procSetupDiGetClassDevsW = modSetupapi.NewProc("SetupDiGetClassDevsW")
 )
@@ -178,7 +178,7 @@ func GetDeviceProperty(dis DevInfo, devInfoData *DevInfoData, devPropKey DEVPROP
 }
 
 var (
-	cfgmgr32 = windows.NewLazyDLL("cfgmgr32.dll")
+	cfgmgr32 = windows.NewLazySystemDLL("cfgmgr32.dll")
 
 	procCM_Get_First_Log_Conf    = cfgmgr32.NewProc("CM_Get_First_Log_Conf")
 	procCM_Get_Next_Res_Des      = cfgmgr32.NewProc("CM_Get_Next_Res_Des")

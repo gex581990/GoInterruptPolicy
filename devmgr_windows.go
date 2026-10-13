@@ -7,10 +7,11 @@ import (
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
+	"golang.org/x/sys/windows"
 )
 
 var (
-	devmgr         = syscall.NewLazyDLL("devmgr.dll")
+	devmgr         = windows.NewLazySystemDLL("devmgr.dll")
 	procDeviceProp = devmgr.NewProc("DeviceProperties_RunDLLW")
 )
 
