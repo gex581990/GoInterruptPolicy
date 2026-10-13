@@ -9,6 +9,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/tailscale/walk"
+	"github.com/tailscale/win"
 )
 
 const REG_FILE_HEADER = "Windows Registry Editor Version 5.00\n\n"
@@ -98,6 +99,9 @@ func saveFileExplorer(owner walk.Form, path, filename, title, filter string) (fi
 	dlg.InitialDirPath = path
 	dlg.Filter = filter
 	dlg.FilePath = filename
+	// Ask before replacing a file. The name offered is the device's, the same
+	// every time, so a second export would otherwise replace the first.
+	dlg.Flags = win.OFN_OVERWRITEPROMPT
 
 	ok, err := dlg.ShowSave(owner)
 	if err != nil {
