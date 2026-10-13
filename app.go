@@ -61,6 +61,12 @@ func main() {
 			}
 		}
 
+		// Whether anything was written, as the setters report it, the way
+		// SetNewDevice does for the GUI. Comparing orgItem with newItem
+		// afterwards cannot tell: each setter copies what it wrote into
+		// orgItem, so by then the two are the same.
+		var changed bool
+
 		if flagMsiSupported != -1 || flagMessageNumberLimit != -1 {
 			if flagMsiSupported != -1 {
 				newItem.MsiSupported = uint32(flagMsiSupported)
@@ -68,7 +74,9 @@ func main() {
 			if flagMessageNumberLimit != -1 {
 				newItem.MessageNumberLimit = uint32(flagMessageNumberLimit)
 			}
-			orgItem.setMSIMode(newItem)
+			if orgItem.MsiSupported != newItem.MsiSupported || orgItem.MessageNumberLimit != newItem.MessageNumberLimit {
+				changed = orgItem.setMSIMode(newItem)
+			}
 		}
 
 		if flagDevicePolicy != -1 || flagDevicePriority != -1 || assignmentSetOverride != ZeroBit {
@@ -81,10 +89,11 @@ func main() {
 			if assignmentSetOverride != ZeroBit {
 				newItem.AssignmentSetOverride = assignmentSetOverride
 			}
-			orgItem.setAffinityPolicy(newItem)
+			if orgItem.DevicePolicy != newItem.DevicePolicy || orgItem.DevicePriority != newItem.DevicePriority || orgItem.AssignmentSetOverride != newItem.AssignmentSetOverride {
+				changed = orgItem.setAffinityPolicy(newItem) || changed
+			}
 		}
 
-		changed := orgItem.MsiSupported != newItem.MsiSupported || orgItem.MessageNumberLimit != newItem.MessageNumberLimit || orgItem.DevicePolicy != newItem.DevicePolicy || orgItem.DevicePriority != newItem.DevicePriority || orgItem.AssignmentSetOverride != newItem.AssignmentSetOverride
 		if flagRestart || (flagRestartOnChange && changed) {
 			propChangeParams := PropChangeParams{
 				ClassInstallHeader: *MakeClassInstallHeader(DIF_PROPERTYCHANGE),
