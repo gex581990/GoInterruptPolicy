@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -243,7 +244,18 @@ func main() {
 					Action{
 						Text: "&Registry parameters",
 						OnTriggered: func() {
+							// The current row if it is selected, else the first
+							// one that is. The current row is -1 until a row is
+							// clicked and after every search, and a right click
+							// below the rows clears the selection but leaves it,
+							// so it alone cannot be trusted.
 							index := mw.tv.CurrentIndex()
+							if selected := mw.tv.SelectedIndexes(); !slices.Contains(selected, index) {
+								if len(selected) == 0 {
+									return
+								}
+								index = selected[0]
+							}
 							d := mw.tv.Model().(*Model).items[index]
 							OpenRegistry(mw.Form(), d.reg)
 						},
