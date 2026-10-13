@@ -119,12 +119,12 @@ func captionWndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			}
 			delete(captionHiddenByOwner, hwnd)
 
-			// Left to the default handling, the dialog is shown again the way
-			// SW_SHOWNOACTIVATE shows a window, which like SW_SHOWNORMAL returns
-			// a maximized or snapped window to its original size and position:
-			// for this dialog, where it first opened. SW_SHOWNA shows it in the
-			// size and position it has, still maximized or snapped, and like
-			// SW_SHOWNOACTIVATE leaves activation to Windows.
+			// Left to the default handling, a maximized or snapped dialog came
+			// back on Windows 11 at the size and position it first opened at.
+			// Microsoft documents only that the default handling shows the
+			// window again, not how. SW_SHOWNA is documented to show a window
+			// at the size and position it has, so it comes back still
+			// maximized or snapped, and it leaves activation to Windows.
 			win.ShowWindow(hwnd, win.SW_SHOWNA)
 			return 0
 		}

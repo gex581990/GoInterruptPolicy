@@ -256,14 +256,14 @@ func rectFromRectangle(r walk.Rectangle) win.RECT {
 	}
 }
 
-// isWindowArrangedProc is looked up when first used rather than linked: the
-// call has no import library, and Windows before 10 version 1903 does not have
-// it at all.
+// isWindowArrangedProc is looked up when first used rather than linked, since
+// the call has no import library. Microsoft documents it from Windows 10
+// version 1903 on.
 var isWindowArrangedProc = windows.NewLazySystemDLL("user32.dll").NewProc("IsWindowArranged")
 
 // isWindowArranged says whether the user has snapped hwnd, which Windows treats
-// as a state of its own like maximized. A Windows too old to snap that way
-// reports nothing as snapped.
+// as a state of its own like maximized. A Windows without the call has nothing
+// taken as snapped.
 func isWindowArranged(hwnd win.HWND) bool {
 	if isWindowArrangedProc.Find() != nil {
 		return false

@@ -11,10 +11,11 @@ import (
 // wider, so on a screen short of height the boxes are spread out sideways
 // until the dialog fits, or until they are as wide as they may go.
 //
-// The font is not a lever. It stays at the size the system chose, which is the
-// size the user's own display settings asked for, and whatever still does not
-// fit is scrolled to. Shrinking the text to save a scroll bar made the dialog
-// hardest to read on exactly the machines with the most cores to read through.
+// The font is not a lever. It stays the size walk draws every form at, its
+// default of MS Shell Dlg 2 at 8 points scaled for the display's DPI, and
+// whatever still does not fit is scrolled to. Shrinking the text to save a
+// scroll bar made the dialog hardest to read on exactly the machines with the
+// most cores to read through.
 //
 // Adding a column never makes the content narrower and never makes it taller,
 // and the search below leans on that.

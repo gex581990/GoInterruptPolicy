@@ -684,7 +684,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, Device, error) {
 	// Lay the core boxes out for the screen before anything measures the
 	// dialog. One that already fits opens the shape its author drew it, and
 	// only one that does not has its boxes spread out, as far as
-	// maxCoresAcross allows. The font stays the size the system chose.
+	// maxCoresAcross allows. The font is never made smaller to fit.
 	grids = newCoreGrids(dlg, dialogScroll, coreArea, checkBoxList.Grids())
 
 	// The one and only time the content is laid out. There is deliberately
