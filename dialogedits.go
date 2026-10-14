@@ -77,11 +77,20 @@ func (e dialogEdits) applyAll(devices []Device, now Device) []Device {
 	return out
 }
 
-// leavesNoProcessor says whether applying the dialog would leave any of
-// devices on the specified processors policy with no processor to use.
+// leavesNoProcessor says whether applying the dialog would write any of
+// devices onto the specified processors policy with no processor to use.
+//
+// Only a device whose Affinity Policy key the dialog changes counts, which a
+// change of its policy, processors or priority does: the key is written whole.
+// One already on that policy with no processor, which the command line used
+// to leave devices in, is not refused for being left alone, or for a change
+// to its MSI settings only. OK writes nothing to its key, and a backup of it
+// holds only what is there already.
 func (e dialogEdits) leavesNoProcessor(devices []Device, now Device) bool {
 	for i := range devices {
-		if d := e.apply(devices[i], now); d.DevicePolicy == IrqPolicySpecifiedProcessors && d.AssignmentSetOverride == ZeroBit {
+		d := e.apply(devices[i], now)
+		changed := d.DevicePolicy != devices[i].DevicePolicy || d.AssignmentSetOverride != devices[i].AssignmentSetOverride || d.DevicePriority != devices[i].DevicePriority
+		if changed && d.DevicePolicy == IrqPolicySpecifiedProcessors && d.AssignmentSetOverride == ZeroBit {
 			return true
 		}
 	}

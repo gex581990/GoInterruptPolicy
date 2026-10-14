@@ -268,6 +268,9 @@ func TestDialogEditsLeaveMSIAloneOnADeviceWithout(t *testing.T) {
 
 func TestDialogEditsLeavesNoProcessor(t *testing.T) {
 	cores := func(d Device, mask Bits) Device { d.AssignmentSetOverride = mask; return d }
+	// Already on specified processors with none, as the command line used to
+	// leave a device it was given -policy 4 alone for.
+	leftEmpty := Device{DevicePolicy: IrqPolicySpecifiedProcessors, MsiSupported: MSI_Off}
 
 	tests := []struct {
 		name    string
@@ -309,6 +312,32 @@ func TestDialogEditsLeavesNoProcessor(t *testing.T) {
 			name:    "specified processors chosen with processors ticked",
 			devices: []Device{gpu, usb},
 			edit:    func(d *Device) { d.DevicePolicy, d.AssignmentSetOverride = 4, 0b0001 },
+		},
+		{
+			// OK writes nothing, and a backup holds the key as it is.
+			name:    "left with none, untouched",
+			devices: []Device{leftEmpty},
+			edit:    func(d *Device) {},
+		},
+		{
+			name:    "left with none, beside another device, untouched",
+			devices: []Device{leftEmpty, usb},
+			edit:    func(d *Device) {},
+		},
+		{
+			// MSI is written on its own, and the Affinity Policy key is left
+			// as it is.
+			name:    "left with none, MSI changed",
+			devices: []Device{leftEmpty},
+			edit:    func(d *Device) { d.MsiSupported = MSI_On },
+		},
+		{
+			// A new priority rewrites the whole key, policy 4 and no
+			// processor included.
+			name:    "left with none, priority changed",
+			devices: []Device{leftEmpty},
+			edit:    func(d *Device) { d.DevicePriority = 3 },
+			want:    true,
 		},
 	}
 
