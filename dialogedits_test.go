@@ -15,21 +15,15 @@ func settingsOf(d Device) settings {
 }
 
 // opened is what the dialog holds for devices once it is built: what they have
-// in common, the placeholders RunDialog gives what they do not, and the MSI
-// limit box's 1 for no limit.
+// in common, and the placeholders RunDialog gives what they do not.
 func opened(devices ...Device) Device {
-	d := Device{
+	return Device{
 		DevicePolicy:          FindCommonValue(devices, 32, func(d Device) uint32 { return d.DevicePolicy }),
 		DevicePriority:        FindCommonValue(devices, 32, func(d Device) uint32 { return d.DevicePriority }),
 		AssignmentSetOverride: FindCommonValue(devices, 0, func(d Device) Bits { return d.AssignmentSetOverride }),
 		MsiSupported:          FindCommonValue(devices, MSI_Tristate, func(d Device) uint32 { return d.MsiSupported }),
 		MessageNumberLimit:    FindCommonValue(devices, 0, func(d Device) uint32 { return d.MessageNumberLimit }),
 	}
-	if d.MessageNumberLimit < 1 {
-		d.MessageNumberLimit = 1
-	}
-
-	return d
 }
 
 var (
@@ -103,8 +97,8 @@ func TestDialogEditsApplyOnlyWhatChanged(t *testing.T) {
 			},
 		},
 		{
-			// Each keeps the limit it had, none or 8, rather than the 1 the
-			// box showed.
+			// Each keeps the limit it had, none or 8, rather than the 0 the
+			// box opened on because their limits differ.
 			name: "MSI on",
 			edit: func(d *Device) { d.MsiSupported = MSI_On },
 			want: []settings{
@@ -141,16 +135,44 @@ func TestDialogEditsApplyOnlyWhatChanged(t *testing.T) {
 	}
 }
 
-// The box shows no limit as 1, so a limit of 1 the user picked cannot be told
-// from it by value. It is the user having changed the box that counts.
+// A device without a limit gives the dialog a limit of 0, which RunDialog's
+// binding shows in the box. A limit the box reports as changed, such as a 1
+// typed over that 0, is applied, and one left alone is not. The binding, and
+// the box reporting the 1, are walk's NumberEdit, which only Windows can run.
 func TestDialogEditsApplyALimitOfOneTheUserChose(t *testing.T) {
 	now := opened(gpu)
+	if now.MessageNumberLimit != 0 {
+		t.Fatalf("opened() gave %d for a device without a limit, want 0", now.MessageNumberLimit)
+	}
 
 	if got := (dialogEdits{opened: now}).apply(gpu, now).MessageNumberLimit; got != 0 {
 		t.Errorf("an untouched box gave the limit %d, want none", got)
 	}
-	if got := (dialogEdits{opened: now, limit: true}).apply(gpu, now).MessageNumberLimit; got != 1 {
+
+	edits := dialogEdits{opened: now, limit: true}
+	now.MessageNumberLimit = 1
+	if got := edits.apply(gpu, now).MessageNumberLimit; got != 1 {
 		t.Errorf("a 1 chosen in the box gave the limit %d, want 1", got)
+	}
+}
+
+// For devices whose limits differ the box opens on 0. Left alone, each keeps
+// its own limit. Changed back to 0 by the user, they all get no limit, which
+// a comparison of values alone could not tell from the box being left alone.
+func TestDialogEditsApplyNoLimitChosenForDevicesWhoseLimitsDiffer(t *testing.T) {
+	devices := []Device{gpu, nic}
+	now := opened(devices...)
+
+	for i, d := range (dialogEdits{opened: now}).applyAll(devices, now) {
+		if d.MessageNumberLimit != devices[i].MessageNumberLimit {
+			t.Errorf("device %d: an untouched box gave the limit %d, want its own %d", i, d.MessageNumberLimit, devices[i].MessageNumberLimit)
+		}
+	}
+
+	for i, d := range (dialogEdits{opened: now, limit: true}).applyAll(devices, now) {
+		if d.MessageNumberLimit != 0 {
+			t.Errorf("device %d: a 0 chosen in the box gave the limit %d, want none", i, d.MessageNumberLimit)
+		}
 	}
 }
 
@@ -192,6 +214,30 @@ func TestDialogEditsApplyALimitOnlyWithMSIOn(t *testing.T) {
 	want := settings{policy: usb.DevicePolicy, priority: usb.DevicePriority, msi: MSI_On, limit: 4}
 	if got := settingsOf(edits.apply(usb, now)); got != want {
 		t.Errorf("left ticked: got %+v, want %+v", got, want)
+	}
+}
+
+// The limit box cannot show the devices' limit when it differs between them,
+// or when theirs is above the most the box goes up to.
+func TestLimitHidden(t *testing.T) {
+	tests := []struct {
+		name    string
+		devices []Device
+		most    float64
+		want    bool
+	}{
+		{name: "one device without a limit", devices: []Device{gpu}, most: 16},
+		{name: "one device with a limit", devices: []Device{nic}, most: 16},
+		{name: "a limit above the most", devices: []Device{{MessageNumberLimit: 32}}, most: 16, want: true},
+		{name: "limits that differ", devices: []Device{gpu, nic}, most: 2048, want: true},
+		{name: "the same limit", devices: []Device{nic, nic}, most: 16},
+	}
+
+	for _, tt := range tests {
+		shown := opened(tt.devices...).MessageNumberLimit
+		if got := limitHidden(tt.devices, shown, tt.most); got != tt.want {
+			t.Errorf("%s: got %v, want %v", tt.name, got, tt.want)
+		}
 	}
 }
 

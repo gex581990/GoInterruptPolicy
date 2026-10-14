@@ -144,6 +144,14 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 		MaxMSILimit:           FindCommonValue(devices, 0, func(d Device) uint32 { return d.MaxMSILimit }),
 	}
 
+	// The MSI limit box shows the devices' limit, and 0 for none. When it
+	// cannot show theirs it shows 0 all the same, and since it reports only a
+	// change of value, a 0 typed straight over that 0 changes nothing.
+	limitToolTip := "0 is no limit"
+	if limitHidden(devices, device.MessageNumberLimit, hasMsiX(device.InterruptTypeMap)) {
+		limitToolTip = "0 is no limit. The 0 shown here may not be the limit set now, which stays unless the box is changed, and typing 0 over it does not change it. To set no limit, step the box up and back down to 0."
+	}
+
 	dialog := Dialog{
 		AssignTo:      &dlg,
 		Title:         title,
@@ -295,7 +303,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 												Enabled:            device.MsiSupported == MSI_On,
 												MinValue:           0,
 												MaxValue:           hasMsiX(device.InterruptTypeMap),
-												Value:              Bind("device.MessageNumberLimit < 1.0 ? 1.0 : device.MessageNumberLimit"),
+												Value:              Bind("device.MessageNumberLimit"),
+												ToolTipText:        limitToolTip,
 												OnValueChanged: func() {
 													device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
 												},
@@ -989,6 +998,19 @@ func (checkboxlist *CheckBoxList) LLC(bits *Bits, idx int) {
 			ccdIdx += 1
 		}
 	}
+}
+
+// limitHidden says whether the MSI limit box cannot show the limit of the
+// devices it is opened for: their limits differ, or the one they share, shown,
+// is above most, the highest the box goes. Either way the box shows 0.
+func limitHidden(devices []Device, shown uint32, most float64) bool {
+	for i := range devices {
+		if devices[i].MessageNumberLimit != devices[0].MessageNumberLimit {
+			return true
+		}
+	}
+
+	return float64(shown) > most
 }
 
 // https://docs.microsoft.com/de-de/windows-hardware/drivers/kernel/enabling-message-signaled-interrupts-in-the-registry

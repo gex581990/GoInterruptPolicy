@@ -5,10 +5,8 @@ package main
 //
 // The dialog opens on the settings its devices have in common, and on a blank
 // or a placeholder for any they do not: the Device Policy and Device Priority
-// dropdowns hold 32, which is no policy and no priority, the processors none
-// and MSI the third state of its checkbox. And it moves one setting itself
-// while it is being built: the MSI limit box shows a device without a limit as
-// 1, and copies that 1 into the device as it is filled in. Writing back
+// dropdowns hold 32, which is no policy and no priority, the processors none,
+// MSI the grey third state of its checkbox and the MSI limit 0. Writing back
 // everything the dialog holds wrote all of that over every device it was open
 // for, so pressing OK without touching anything could change them.
 //
@@ -17,9 +15,14 @@ package main
 type dialogEdits struct {
 	opened Device // the dialog's settings once it was built
 
-	// limit says whether the user changed the MSI limit, which is told apart
-	// from its value: the box shows no limit as 1, so a 1 chosen in it would
-	// look no different from the 1 it opened on.
+	// limit says whether the user changed the MSI limit. The value alone
+	// cannot say. For devices whose limits differ the box opens on 0, which is
+	// also no limit, so a 0 reached in it from another value looks the same
+	// as the 0 it opened on. A 0 typed straight over that 0 is not seen at
+	// all, since the box reports only a change of value, and its tooltip says
+	// so (see limitHidden). And a limit above the most the box allows cannot
+	// be shown, so the box stays at 0, and ticking MSI on copies that 0 into
+	// the dialog's settings although nobody chose it.
 	limit bool
 }
 
