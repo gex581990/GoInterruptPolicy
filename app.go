@@ -490,8 +490,12 @@ func main() {
 			maxDeviceDesc = newDeviceDesc
 		}
 	}
-	if maxDeviceDesc < 150 {
-		mw.tv.Columns().At(0).SetWidth(maxDeviceDesc)
+	// Microsoft documents that a list view column only as wide as its text
+	// cuts the text off, and that padding has to be added, without saying how
+	// much.
+	const nameColumnPadding = 16
+	if maxDeviceDesc+nameColumnPadding < 150 {
+		mw.tv.Columns().At(0).SetWidth(maxDeviceDesc + nameColumnPadding)
 	}
 
 	mw.Show()
@@ -603,6 +607,11 @@ func (mw *MyMainWindow) SetNewDevice(orgItem *Device, newItem *Device) Device {
 	return *orgItem
 }
 
+// TextWidthSize is how wide text is drawn in the table's font, in the 96 dpi
+// units column widths are given in. Measured, it is in pixels, which at any
+// scaling above 100% made a column that much wider than the text. It is
+// measured with an & as an &, the way the table draws it, and not as the
+// mark of an underlined letter, which takes no width.
 func (mw *MyMainWindow) TextWidthSize(text string) int {
 	canvas, err := (*mw.tv).CreateCanvas()
 	if err != nil {
@@ -610,12 +619,12 @@ func (mw *MyMainWindow) TextWidthSize(text string) int {
 	}
 	defer canvas.Dispose()
 
-	bounds, _, err := canvas.MeasureTextPixels(text, (*mw.tv).Font(), walk.Rectangle{Width: 9999999}, walk.TextCalcRect)
+	bounds, _, err := canvas.MeasureTextPixels(text, (*mw.tv).Font(), walk.Rectangle{Width: 9999999}, walk.TextCalcRect|walk.TextNoPrefix)
 	if err != nil {
 		return 0
 	}
 
-	return bounds.Size().Width
+	return mw.tv.IntTo96DPI(bounds.Size().Width)
 }
 
 type Model struct {
