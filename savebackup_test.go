@@ -158,6 +158,22 @@ func TestRegFileLeavesOutMSIForADeviceWithout(t *testing.T) {
 	}
 }
 
+// Only a .reg file merges on a double-click, and the save dialog adds no
+// extension to a name typed without one.
+func TestWithRegExtension(t *testing.T) {
+	for path, want := range map[string]string{
+		`C:\backup\gpu.reg`:            `C:\backup\gpu.reg`,
+		`C:\backup\gpu.REG`:            `C:\backup\gpu.REG`,
+		`C:\backup\gpu settings`:       `C:\backup\gpu settings.reg`,
+		`C:\backup\usb 3.1 controller`: `C:\backup\usb 3.1 controller.reg`,
+		`C:\backup\gpu.txt`:            `C:\backup\gpu.txt.reg`,
+	} {
+		if got := withRegExtension(path); got != want {
+			t.Errorf("withRegExtension(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
 // The name an export offers is the device's description, which can hold
 // characters Windows does not allow in a file name.
 func TestRegFileNameHasOnlyCharactersAFileNameMay(t *testing.T) {

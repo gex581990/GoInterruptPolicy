@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"log"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"unicode/utf16"
@@ -103,6 +104,17 @@ func regFileName(desc string) string {
 		}
 		return r
 	}, desc) + ".reg"
+}
+
+// withRegExtension gives path the .reg extension unless it has it. Only a .reg
+// file merges into the registry on a double-click, and walk's save dialog adds
+// no extension to a name typed without one.
+func withRegExtension(path string) string {
+	if strings.EqualFold(filepath.Ext(path), ".reg") {
+		return path
+	}
+
+	return path + ".reg"
 }
 
 func saveFileExplorer(owner walk.Form, path, filename, title, filter string) (filePath string, cancel bool, err error) {

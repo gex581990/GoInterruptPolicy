@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -582,6 +583,18 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 											}
 											if cancel {
 												return
+											}
+
+											// Windows drops a name's trailing dots and spaces
+											// when it opens the file, and the dialog asked
+											// about replacing the name without them. It did
+											// not ask about the name with .reg added.
+											filePath = strings.TrimRight(filePath, ". ")
+											if named := withRegExtension(filePath); named != filePath {
+												filePath = named
+												if _, err := os.Stat(filePath); err == nil && walk.MsgBox(dlg, "Confirm Save As", filepath.Base(filePath)+" already exists.\nDo you want to replace it?", walk.MsgBoxYesNo|walk.MsgBoxIconWarning) != walk.DlgCmdYes {
+													return
+												}
 											}
 
 											if err := os.WriteFile(filePath, regFileDocument(reg_file_value.String()), 0o666); err != nil {
