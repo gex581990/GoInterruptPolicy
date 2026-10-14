@@ -154,6 +154,47 @@ func TestDialogEditsApplyALimitOfOneTheUserChose(t *testing.T) {
 	}
 }
 
+// RunDialog opens the MSI box grey for devices whose MSI settings differ,
+// and its click handler reads a box clicked round to grey again as
+// MSI_Tristate. Both are walk's, which only Windows can run. Given them, each
+// device keeps its own MSI settings, whatever was typed into the limit box
+// while it was ticked.
+func TestDialogEditsLeaveMSIAloneWhenTheBoxEndsGrey(t *testing.T) {
+	devices := []Device{gpu, usb}
+	now := opened(devices...)
+	if now.MsiSupported != MSI_Tristate {
+		t.Fatalf("opened() gave %d for devices whose MSI differs, want MSI_Tristate", now.MsiSupported)
+	}
+
+	edits := dialogEdits{opened: now, limit: true}
+	now.MessageNumberLimit = 4
+
+	for i, d := range edits.applyAll(devices, now) {
+		if got, want := settingsOf(d), settingsOf(devices[i]); got != want {
+			t.Errorf("device %d: got %+v, want it as it was, %+v", i, got, want)
+		}
+	}
+}
+
+// A limit typed while MSI was ticked for a moment, on a device whose MSI is
+// off, is not applied once MSI is unticked again. Applied, it made OK delete
+// the device's MSI key and ask for a restart although MSI never changed.
+func TestDialogEditsApplyALimitOnlyWithMSIOn(t *testing.T) {
+	now := opened(usb)
+	edits := dialogEdits{opened: now, limit: true}
+	now.MessageNumberLimit = 4
+
+	if got, want := settingsOf(edits.apply(usb, now)), settingsOf(usb); got != want {
+		t.Errorf("unticked again: got %+v, want the device as it was, %+v", got, want)
+	}
+
+	now.MsiSupported = MSI_On
+	want := settings{policy: usb.DevicePolicy, priority: usb.DevicePriority, msi: MSI_On, limit: 4}
+	if got := settingsOf(edits.apply(usb, now)); got != want {
+		t.Errorf("left ticked: got %+v, want %+v", got, want)
+	}
+}
+
 // Switching to specified processors shows the processors to tick, and
 // switching back leaves the ticks behind. They are not the device's to keep.
 func TestDialogEditsKeepProcessorsOnlyForTheirPolicy(t *testing.T) {

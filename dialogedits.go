@@ -52,7 +52,12 @@ func (e dialogEdits) apply(d, now Device) Device {
 		d.MsiSupported = now.MsiSupported
 	}
 
-	if e.limit {
+	// A limit only goes with MSI on, so it is applied only when the box ends
+	// ticked, the one state in which the limit box can be used. Typed while MSI
+	// was ticked for a moment and then left behind by unticking the box or
+	// clicking it back to grey, it is not a limit the user chose for these
+	// devices.
+	if e.limit && now.MsiSupported == MSI_On {
 		d.MessageNumberLimit = now.MessageNumberLimit
 	}
 

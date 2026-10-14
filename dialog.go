@@ -265,6 +265,12 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 												device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
 											} else {
 												device.MsiSupported = MSI_Off
+												// Grey, as the box opens for devices whose MSI
+												// settings differ, is each keeping its own, not
+												// MSI off. Checked() is only true for a tick.
+												if MsiSupportedCB.CheckState() == walk.CheckIndeterminate {
+													device.MsiSupported = MSI_Tristate
+												}
 												deviceMessageNumberLimitNE.SetEnabled(false)
 											}
 										},
