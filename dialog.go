@@ -536,7 +536,11 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 											for i := range devices {
 												regPath, err := GetRegistryLocation(uintptr(devices[i].reg))
 												if err != nil {
-													walk.MsgBox(dlg, "Error", err.Error(), walk.MsgBoxIconError)
+													// Without its key a device's section has
+													// nowhere to go, and a file missing it is not
+													// the backup it looks like, so none is written.
+													walk.MsgBox(dlg, "Error", fmt.Sprintf("%s\n\n%v", devices[i].DeviceDesc, err), walk.MsgBoxIconError)
+													return
 												}
 
 												reg_file_value.WriteString(createRegFile(dlg, regPath, edits.apply(devices[i], *device)))

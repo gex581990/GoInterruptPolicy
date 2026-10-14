@@ -71,7 +71,7 @@ func GetRegistryLocation(regHandle uintptr) (string, error) {
 	result := NtQueryKey(regHandle, KeyNameInformation, nil, 0, &size)
 	if result == STATUS_BUFFER_TOO_SMALL {
 		buf := make([]byte, size)
-		if result := NtQueryKey(regHandle, KeyNameInformation, &buf[0], size, &size); result == 0 {
+		if result = NtQueryKey(regHandle, KeyNameInformation, &buf[0], size, &size); result == 0 {
 			regPath, err := DecodeUTF16(buf)
 			if err != nil {
 				return "", err
@@ -84,7 +84,9 @@ func GetRegistryLocation(regHandle uintptr) (string, error) {
 	} else {
 		return "", fmt.Errorf("error: 0x%X", result)
 	}
-	return "", nil
+	// The second query failed, which is as much an error as the first one
+	// failing. Without one, callers carried on with an empty key path.
+	return "", fmt.Errorf("error: 0x%X", result)
 }
 
 func DecodeUTF16(b []byte) (string, error) {

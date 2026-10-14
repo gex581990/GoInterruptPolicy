@@ -168,6 +168,7 @@ func OpenRegistry(dlg walk.Form, reg registry.Key) {
 	regPath, err := GetRegistryLocation(uintptr(reg))
 	if err != nil {
 		walk.MsgBox(dlg, "NtQueryKey Error", err.Error(), walk.MsgBoxIconError)
+		return
 	}
 
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Applets\Regedit`, registry.SET_VALUE)
