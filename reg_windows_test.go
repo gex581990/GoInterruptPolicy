@@ -58,3 +58,41 @@ func TestGetMaskValueReadsEveryMaskType(t *testing.T) {
 		}
 	}
 }
+
+// GetDWORDuint32Value reads a REG_DWORD, and nothing from a value of another
+// type, which it once read as the number its bytes make: "4" as 52.
+func TestGetDWORDuint32ValueReadsOnlyADword(t *testing.T) {
+	path := fmt.Sprintf(`Software\GoInterruptPolicyTest%016x`, rand.Uint64())
+
+	key, existing, err := registry.CreateKey(registry.CURRENT_USER, path, registry.ALL_ACCESS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if existing {
+		key.Close()
+		t.Fatalf("%s is already there, and is not this test's to delete", path)
+	}
+	defer func() {
+		key.Close()
+		if err := registry.DeleteKey(registry.CURRENT_USER, path); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	for _, err := range []error{
+		key.SetDWordValue("dword", 4),
+		key.SetStringValue("string", "4"),
+		key.SetQWordValue("qword", 4),
+		key.SetBinaryValue("binary", []byte{4}),
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for name, want := range map[string]uint32{"dword": 4, "string": 0, "qword": 0, "binary": 0, "missing": 0} {
+		if got := GetDWORDuint32Value(key, name); got != want {
+			t.Errorf("%s: read as %d, want %d", name, got, want)
+		}
+	}
+}

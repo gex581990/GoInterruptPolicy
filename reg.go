@@ -57,9 +57,16 @@ func isMaskType(valtype uint32) bool {
 	return false
 }
 
+// GetDWORDuint32Value reads a REG_DWORD, which is the type Microsoft
+// documents for every setting this program reads with it, and 0, which they
+// all take for not set, for anything else. A value of another type used to be
+// read as the number its bytes make, a REG_SZ "4" as 52, and written back,
+// to the registry and to an export, as a REG_DWORD of that number.
 func GetDWORDuint32Value(key registry.Key, name string) uint32 {
 	buf := make([]byte, 4)
-	key.GetValue(name, buf)
+	if n, valtype, err := key.GetValue(name, buf); err != nil || n != 4 || valtype != registry.DWORD {
+		return 0
+	}
 	return btoi32(buf)
 }
 
