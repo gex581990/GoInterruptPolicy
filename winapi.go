@@ -120,9 +120,9 @@ func FindAllDevices() ([]Device, DevInfo) {
 		dev.reg, _ = SetupDiOpenDevRegKey(handle, idata, DICS_FLAG_GLOBAL, 0, DIREG_DEV, windows.KEY_SET_VALUE)
 
 		affinityPolicyKey, _ := registry.OpenKey(dev.reg, `Interrupt Management\Affinity Policy`, registry.QUERY_VALUE)
-		dev.DevicePolicy = GetDWORDuint32Value(affinityPolicyKey, "DevicePolicy")               // REG_DWORD
-		dev.DevicePriority = GetDWORDuint32Value(affinityPolicyKey, "DevicePriority")           // REG_DWORD
-		AssignmentSetOverrideByte := GetBinaryValue(affinityPolicyKey, "AssignmentSetOverride") // REG_BINARY
+		dev.DevicePolicy = GetDWORDuint32Value(affinityPolicyKey, "DevicePolicy")             // REG_DWORD
+		dev.DevicePriority = GetDWORDuint32Value(affinityPolicyKey, "DevicePriority")         // REG_DWORD
+		AssignmentSetOverrideByte := GetMaskValue(affinityPolicyKey, "AssignmentSetOverride") // REG_BINARY, REG_DWORD or REG_QWORD
 		affinityPolicyKey.Close()
 
 		if len(AssignmentSetOverrideByte) != 0 {

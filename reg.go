@@ -26,12 +26,35 @@ func GetStringValue(key registry.Key, name string) string {
 	return value
 }
 
-func GetBinaryValue(key registry.Key, name string) []byte {
-	value, _, err := key.GetBinaryValue(name)
+// GetMaskValue reads a processor mask such as AssignmentSetOverride, which
+// Microsoft documents as a REG_BINARY, a REG_DWORD or a REG_QWORD value. All
+// three keep the mask's lowest byte first, so their bytes are read the same
+// way. It replaces GetBinaryValue, which read the first type only, so a mask
+// stored as either of the others came back as no processors at all.
+func GetMaskValue(key registry.Key, name string) []byte {
+	size, valtype, err := key.GetValue(name, nil)
+	if err != nil || size == 0 || !isMaskType(valtype) {
+		return []byte{}
+	}
+
+	buf := make([]byte, size)
+	n, _, err := key.GetValue(name, buf)
 	if err != nil {
 		return []byte{}
 	}
-	return value
+
+	return buf[:n]
+}
+
+// isMaskType says whether a registry value of type valtype can hold a
+// processor mask.
+func isMaskType(valtype uint32) bool {
+	switch valtype {
+	case registry.BINARY, registry.DWORD, registry.QWORD:
+		return true
+	}
+
+	return false
 }
 
 func GetDWORDuint32Value(key registry.Key, name string) uint32 {
