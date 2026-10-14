@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // settings is the part of a Device the dialog edits, which unlike a Device
 // can be compared.
@@ -266,17 +269,41 @@ func TestDialogEditsLeaveMSIAloneOnADeviceWithout(t *testing.T) {
 	}
 }
 
-func TestDialogEditsLeavesNoProcessor(t *testing.T) {
+func TestDialogEditsRefusals(t *testing.T) {
 	cores := func(d Device, mask Bits) Device { d.AssignmentSetOverride = mask; return d }
 	// Already on specified processors with none, as the command line used to
 	// leave a device it was given -policy 4 alone for.
 	leftEmpty := Device{DevicePolicy: IrqPolicySpecifiedProcessors, MsiSupported: MSI_Off}
+	// Values Windows does not document, as another tool could have stored.
+	oddPolicy := Device{DevicePolicy: 7, MsiSupported: MSI_Off}
+	oddPriority := Device{DevicePolicy: IrqPolicyAllCloseProcessors, DevicePriority: 9, MsiSupported: MSI_Off}
+	msi := Device{DeviceDesc: "MSI device", InterruptTypeMap: 0b011, MsiSupported: MSI_On, MessageNumberLimit: 8}
+	msiX := Device{DeviceDesc: "MSI-X device", InterruptTypeMap: 0b111, MsiSupported: MSI_On, MessageNumberLimit: 64}
+	limit3Off := Device{DeviceDesc: "MSI device", InterruptTypeMap: 0b011, MsiSupported: MSI_Off, MessageNumberLimit: 3}
+	limit3On := Device{DeviceDesc: "MSI device", InterruptTypeMap: 0b011, MsiSupported: MSI_On, MessageNumberLimit: 3}
+	limit3000 := Device{DeviceDesc: "MSI-X device", InterruptTypeMap: 0b111, MsiSupported: MSI_On, MessageNumberLimit: 3000}
+	// Processors 8 and 9 on a machine of 8, numbered 0 to 7, as a mask set
+	// before SMT was turned off can be.
+	lacking := Device{DevicePolicy: IrqPolicySpecifiedProcessors, AssignmentSetOverride: 0b11 << 8, MsiSupported: MSI_Off}
+	mixed := cores(lacking, 0b11<<8|0b1)
+	eight := absentProcessors(8)
+	// Two devices of one kind, with one name, told apart by their location.
+	audio := Device{DeviceDesc: "High Definition Audio Controller", LocationInformation: "PCI bus 1, device 0, function 1", InterruptTypeMap: 0b011, MsiSupported: MSI_On, MessageNumberLimit: 3}
+	audio2 := Device{DeviceDesc: "High Definition Audio Controller", LocationInformation: "PCI bus 0, device 31, function 3", InterruptTypeMap: 0b011, MsiSupported: MSI_On, MessageNumberLimit: 4}
+
+	const lacks = "names processors this machine does not have"
+
+	const none = "at least one processor"
 
 	tests := []struct {
 		name    string
 		devices []Device
 		edit    func(d *Device)
-		want    bool
+		limit   bool // whether the user changed the MSI limit
+		absent  Bits // the processors the machine lacks
+		// ok and export are part of the reason OK and Export give, or empty
+		// for neither refused.
+		ok, export string
 	}{
 		{
 			name:    "untouched",
@@ -287,13 +314,13 @@ func TestDialogEditsLeavesNoProcessor(t *testing.T) {
 			name:    "every processor cleared",
 			devices: []Device{gpu},
 			edit:    func(d *Device) { d.AssignmentSetOverride = 0 },
-			want:    true,
+			ok:      none, export: none,
 		},
 		{
 			name:    "specified processors chosen and none ticked",
 			devices: []Device{usb},
 			edit:    func(d *Device) { d.DevicePolicy = 4 },
-			want:    true,
+			ok:      none, export: none,
 		},
 		{
 			// The devices share the policy but not the processors, so the
@@ -306,7 +333,7 @@ func TestDialogEditsLeavesNoProcessor(t *testing.T) {
 			name:    "specified processors chosen for one that has none",
 			devices: []Device{gpu, usb},
 			edit:    func(d *Device) { d.DevicePolicy = 4 },
-			want:    true,
+			ok:      none, export: none,
 		},
 		{
 			name:    "specified processors chosen with processors ticked",
@@ -314,22 +341,26 @@ func TestDialogEditsLeavesNoProcessor(t *testing.T) {
 			edit:    func(d *Device) { d.DevicePolicy, d.AssignmentSetOverride = 4, 0b0001 },
 		},
 		{
-			// OK writes nothing, and a backup holds the key as it is.
+			// OK writes nothing, but the file would put the device back on
+			// specified processors with none.
 			name:    "left with none, untouched",
 			devices: []Device{leftEmpty},
 			edit:    func(d *Device) {},
+			export:  none,
 		},
 		{
 			name:    "left with none, beside another device, untouched",
 			devices: []Device{leftEmpty, usb},
 			edit:    func(d *Device) {},
+			export:  none,
 		},
 		{
-			// MSI is written on its own, and the Affinity Policy key is left
-			// as it is.
+			// OK writes MSI on its own, and leaves the Affinity Policy key as
+			// it is. The file writes that key too.
 			name:    "left with none, MSI changed",
 			devices: []Device{leftEmpty},
 			edit:    func(d *Device) { d.MsiSupported = MSI_On },
+			export:  none,
 		},
 		{
 			// A new priority rewrites the whole key, policy 4 and no
@@ -337,19 +368,196 @@ func TestDialogEditsLeavesNoProcessor(t *testing.T) {
 			name:    "left with none, priority changed",
 			devices: []Device{leftEmpty},
 			edit:    func(d *Device) { d.DevicePriority = 3 },
-			want:    true,
+			ok:      none, export: none,
+		},
+		{
+			name:    "a policy Windows does not define, untouched",
+			devices: []Device{oddPolicy},
+			edit:    func(d *Device) {},
+			export:  "Device Policy 7",
+		},
+		{
+			name:    "a policy Windows does not define, priority changed",
+			devices: []Device{oddPolicy},
+			edit:    func(d *Device) { d.DevicePriority = 2 },
+			ok:      "Device Policy 7", export: "Device Policy 7",
+		},
+		{
+			name:    "a policy Windows does not define, replaced",
+			devices: []Device{oddPolicy},
+			edit:    func(d *Device) { d.DevicePolicy = 1 },
+		},
+		{
+			name:    "a priority Windows does not define, policy changed",
+			devices: []Device{oddPriority},
+			edit:    func(d *Device) { d.DevicePolicy = 3 },
+			ok:      "Device Priority 9", export: "Device Priority 9",
+		},
+		{
+			name:    "a priority Windows does not define, MSI changed",
+			devices: []Device{oddPriority},
+			edit:    func(d *Device) { d.MsiSupported = MSI_On },
+			export:  "Device Priority 9",
+		},
+		{
+			name:    "an MSI limit of 3 without MSI-X",
+			devices: []Device{msi},
+			edit:    func(d *Device) { d.MessageNumberLimit = 3 },
+			limit:   true,
+			ok:      "MSI limit of 3", export: "MSI limit of 3",
+		},
+		{
+			name:    "an MSI limit of 16 without MSI-X",
+			devices: []Device{msi},
+			edit:    func(d *Device) { d.MessageNumberLimit = 16 },
+			limit:   true,
+		},
+		{
+			name:    "an MSI limit of 12 with MSI-X",
+			devices: []Device{msiX},
+			edit:    func(d *Device) { d.MessageNumberLimit = 12 },
+			limit:   true,
+		},
+		{
+			name:    "no MSI limit",
+			devices: []Device{msi},
+			edit:    func(d *Device) { d.MessageNumberLimit = 0 },
+			limit:   true,
+		},
+		{
+			name:    "an MSI-X limit above 2048 already set, untouched",
+			devices: []Device{limit3000},
+			edit:    func(d *Device) {},
+			export:  "MSI limit of 3000",
+		},
+		{
+			// MSI on writes the limit the device had with MSI off.
+			name:    "MSI turned on over a limit of 3",
+			devices: []Device{limit3Off},
+			edit:    func(d *Device) { d.MsiSupported = MSI_On },
+			ok:      "MSI limit of 3", export: "MSI limit of 3",
+		},
+		{
+			// MSI off deletes the limit, in the registry and in the file.
+			name:    "MSI turned off over a limit of 3",
+			devices: []Device{limit3On},
+			edit:    func(d *Device) { d.MsiSupported = MSI_Off },
+		},
+		{
+			name:    "only processors the machine lacks, untouched",
+			devices: []Device{lacking},
+			edit:    func(d *Device) {},
+			absent:  eight,
+			export:  none,
+		},
+		{
+			name:    "only processors the machine lacks, priority changed",
+			devices: []Device{lacking},
+			edit:    func(d *Device) { d.DevicePriority = 2 },
+			absent:  eight,
+			ok:      none, export: none,
+		},
+		{
+			name:    "a processor the machine has beside ones it lacks, untouched",
+			devices: []Device{mixed},
+			edit:    func(d *Device) {},
+			absent:  eight,
+			export:  lacks,
+		},
+		{
+			name:    "a processor the machine has beside ones it lacks, priority changed",
+			devices: []Device{mixed},
+			edit:    func(d *Device) { d.DevicePriority = 2 },
+			absent:  eight,
+			ok:      lacks, export: lacks,
+		},
+		{
+			// Ticking keeps the bits there is no box for.
+			name:    "a processor ticked beside ones the machine lacks",
+			devices: []Device{mixed},
+			edit:    func(d *Device) { d.AssignmentSetOverride |= 0b10 },
+			absent:  eight,
+			ok:      lacks, export: lacks,
+		},
+		{
+			// All Off clears them, and the processors ticked after are all
+			// the mask holds.
+			name:    "All Off, then a processor ticked",
+			devices: []Device{mixed},
+			edit:    func(d *Device) { d.AssignmentSetOverride, d.DevicePriority = 0b1, 2 },
+			absent:  eight,
+		},
+		{
+			name:    "an MSI limit of 3 on one of two devices with one name",
+			devices: []Device{audio, audio2},
+			edit:    func(d *Device) {},
+			export:  "High Definition Audio Controller (PCI bus 1, device 0, function 1): An MSI limit of 3",
+		},
+		{
+			// With the machine's processors unknown, every bit counts.
+			name:    "processors 8 and 9 on a machine not known",
+			devices: []Device{lacking},
+			edit:    func(d *Device) { d.DevicePriority = 2 },
+		},
+		{
+			name:    "an MSI limit of 3 named among several devices",
+			devices: []Device{limit3On, msiX},
+			edit:    func(d *Device) {},
+			export:  "MSI device: An MSI limit of 3",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := opened(tt.devices...)
-			edits := dialogEdits{opened: now}
+			edits := dialogEdits{opened: now, limit: tt.limit, absent: tt.absent}
 			tt.edit(&now)
 
-			if got := edits.leavesNoProcessor(tt.devices, now); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
+			for _, check := range []struct {
+				name  string
+				whole bool
+				want  string
+			}{{"OK", false, tt.ok}, {"Export", true, tt.export}} {
+				refused := strings.Join(edits.refusals(tt.devices, now, check.whole), "\n")
+				switch {
+				case check.want == "" && refused != "":
+					t.Errorf("%s refused, want it allowed: %q", check.name, refused)
+				case check.want != "" && !strings.Contains(refused, check.want):
+					t.Errorf("%s gave %q, want it refused saying %q", check.name, refused, check.want)
+				}
 			}
 		})
+	}
+}
+
+func TestAbsentProcessors(t *testing.T) {
+	for _, tt := range []struct {
+		threads int
+		want    Bits
+	}{
+		{threads: 0, want: 0},
+		{threads: 1, want: ^Bits(0b1)},
+		{threads: 8, want: ^Bits(0xff)},
+		{threads: 63, want: 1 << 63},
+		{threads: 64, want: 0},
+	} {
+		if got := absentProcessors(tt.threads); got != tt.want {
+			t.Errorf("absentProcessors(%d) = %#x, want %#x", tt.threads, got, tt.want)
+		}
+	}
+}
+
+// Microsoft documents a limit of 1, 2, 4, 8 or 16 for MSI, and any number up
+// to 2048 for MSI-X. 0 is no limit.
+func TestLimitTaken(t *testing.T) {
+	const msi, msiX = Bits(0b011), Bits(0b111)
+	for limit := uint32(0); limit <= 2049; limit++ {
+		wantMSI := limit == 0 || limit == 1 || limit == 2 || limit == 4 || limit == 8 || limit == 16
+		if got := limitTaken(limit, msi); got != wantMSI {
+			t.Errorf("limit %d without MSI-X: got %v, want %v", limit, got, wantMSI)
+		}
+		if got, want := limitTaken(limit, msiX), limit <= 2048; got != want {
+			t.Errorf("limit %d with MSI-X: got %v, want %v", limit, got, want)
+		}
 	}
 }

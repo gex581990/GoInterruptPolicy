@@ -157,10 +157,15 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 
 	// The MSI limit box shows the devices' limit, and 0 for none. When it
 	// cannot show theirs it shows 0 all the same, and since it reports only a
-	// change of value, a 0 typed straight over that 0 changes nothing.
-	limitToolTip := "0 is no limit"
+	// change of value, a 0 typed straight over that 0 changes nothing. It
+	// steps by one, so without MSI-X its tooltip names the limits Microsoft
+	// documents, which OK and Export hold it to.
+	limitToolTip := "0 is no limit."
+	if !Has(device.InterruptTypeMap, msiXBit) {
+		limitToolTip += " Without MSI-X the limit is 1, 2, 4, 8 or 16."
+	}
 	if limitHidden(devices, device.MessageNumberLimit, hasMsiX(device.InterruptTypeMap)) {
-		limitToolTip = "0 is no limit. The 0 shown here may not be the limit set now, which stays unless the box is changed, and typing 0 over it does not change it. To set no limit, step the box up and back down to 0."
+		limitToolTip += " The 0 shown here may not be the limit set now, which stays unless the box is changed, and typing 0 over it does not change it. To set no limit, step the box up and back down to 0."
 	}
 
 	dialog := Dialog{
@@ -534,11 +539,12 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 									PushButton{
 										Text: "Export current settings",
 										OnClicked: func() {
-											// The check OK makes. A backup of a state OK
-											// refuses would restore exactly that state:
-											// specified processors and none of them to use.
-											if edits.leavesNoProcessor(devices, *device) {
-												walk.MsgBox(dlg, "Invalid Option", "The affinity mask must contain at least one processor.", walk.MsgBoxIconError)
+											// The checks OK makes, over every key of every
+											// device. The file is imported to apply what it
+											// holds, so a value Microsoft does not document
+											// is no more written to it than to the registry.
+											if refused := edits.refusals(devices, *device, true); len(refused) != 0 {
+												walk.MsgBox(dlg, "Invalid Option", strings.Join(refused, "\n\n"), walk.MsgBoxIconError)
 												return
 											}
 
@@ -682,8 +688,8 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 						AssignTo: &acceptPB,
 						Text:     "OK",
 						OnClicked: func() {
-							if edits.leavesNoProcessor(devices, *device) {
-								walk.MsgBox(dlg, "Invalid Option", "The affinity mask must contain at least one processor.", walk.MsgBoxIconError)
+							if refused := edits.refusals(devices, *device, false); len(refused) != 0 {
+								walk.MsgBox(dlg, "Invalid Option", strings.Join(refused, "\n\n"), walk.MsgBoxIconError)
 							} else {
 								if err := db.Submit(); err != nil {
 									return
@@ -710,7 +716,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 
 	// Building the dialog is done, and what it moved while it was being built
 	// it moved on its own. Whatever moves from here on, the user moved.
-	edits = dialogEdits{opened: *device}
+	edits = dialogEdits{opened: *device, absent: absentProcessors(cs.Threads)}
 	deviceMessageNumberLimitNE.ValueChanged().Attach(func() {
 		edits.limit = true
 	})

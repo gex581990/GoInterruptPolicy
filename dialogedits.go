@@ -24,6 +24,11 @@ type dialogEdits struct {
 	// be shown, so the box stays at 0, and ticking MSI on copies that 0 into
 	// the dialog's settings although nobody chose it.
 	limit bool
+
+	// absent is the part of a mask that names no processor this machine has.
+	// The dialog has no box for those, so a mask of nothing else is one with
+	// no processor ticked.
+	absent Bits
 }
 
 // apply returns d with the settings the dialog has changed set to what now
@@ -77,23 +82,46 @@ func (e dialogEdits) applyAll(devices []Device, now Device) []Device {
 	return out
 }
 
-// leavesNoProcessor says whether applying the dialog would write any of
-// devices onto the specified processors policy with no processor to use.
+// refusals says what applying the dialog would write for devices that
+// Microsoft does not document, one reason each, naming the device when there
+// are several.
 //
-// Only a device whose Affinity Policy key the dialog changes counts, which a
-// change of its policy, processors or priority does: the key is written whole.
-// One already on that policy with no processor, which the command line used
-// to leave devices in, is not refused for being left alone, or for a change
-// to its MSI settings only. OK writes nothing to its key, and a backup of it
-// holds only what is there already.
-func (e dialogEdits) leavesNoProcessor(devices []Device, now Device) bool {
+// OK writes a device's Affinity Policy key only when its policy, processors
+// or priority changed, and its MSI key only when its MSI setting or limit
+// did, so only those keys count. Each counts whole, since a value in it that
+// nobody changed is written again with it. So OK does not refuse a device
+// left on the specified processors policy with no processor, as the command
+// line used to leave devices, for being left alone or for a change to its MSI
+// settings only.
+//
+// Export writes every key of every device, since its file is imported to
+// apply them all, so with whole set every key counts, and that device is
+// refused.
+func (e dialogEdits) refusals(devices []Device, now Device, whole bool) []string {
+	var refused []string
 	for i := range devices {
 		d := e.apply(devices[i], now)
-		changed := d.DevicePolicy != devices[i].DevicePolicy || d.AssignmentSetOverride != devices[i].AssignmentSetOverride || d.DevicePriority != devices[i].DevicePriority
-		if changed && d.DevicePolicy == IrqPolicySpecifiedProcessors && d.AssignmentSetOverride == ZeroBit {
-			return true
+
+		var reasons []string
+		if whole || d.DevicePolicy != devices[i].DevicePolicy || d.AssignmentSetOverride != devices[i].AssignmentSetOverride || d.DevicePriority != devices[i].DevicePriority {
+			reasons = append(reasons, affinityRefusals(&d, e.absent)...)
+		}
+		if whole || d.MsiSupported != devices[i].MsiSupported || d.MessageNumberLimit != devices[i].MessageNumberLimit {
+			reasons = append(reasons, msiRefusals(&d)...)
+		}
+
+		// Devices of one kind share a name, so the location tells them apart.
+		name := devices[i].DeviceDesc
+		if devices[i].LocationInformation != "" {
+			name += " (" + devices[i].LocationInformation + ")"
+		}
+		for _, reason := range reasons {
+			if len(devices) > 1 {
+				reason = name + ": " + reason
+			}
+			refused = append(refused, reason)
 		}
 	}
 
-	return false
+	return refused
 }
