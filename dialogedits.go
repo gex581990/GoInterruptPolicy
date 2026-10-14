@@ -1,5 +1,7 @@
 package main
 
+import "math"
+
 // dialogEdits is what the device policy dialog has changed, so that applying
 // it changes nothing else.
 //
@@ -70,6 +72,14 @@ func (e dialogEdits) apply(d, now Device) Device {
 	}
 
 	return d
+}
+
+// boxLimit is the MSI limit the limit box shows for its value v. The box can
+// hold a fraction, from a pasted 7.9 or a high resolution wheel's part of a
+// step, and shows it rounded half to even, as strconv does with no decimals.
+// Truncated, a box showing 8 wrote 7, and one showing 1 wrote no limit.
+func boxLimit(v float64) uint32 {
+	return uint32(math.RoundToEven(v))
 }
 
 // applyAll is apply for each of devices, in order.

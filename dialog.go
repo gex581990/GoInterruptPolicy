@@ -286,7 +286,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 											if MsiSupportedCB.Checked() {
 												device.MsiSupported = MSI_On
 												deviceMessageNumberLimitNE.SetEnabled(true)
-												device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
+												device.MessageNumberLimit = boxLimit(deviceMessageNumberLimitNE.Value())
 											} else {
 												device.MsiSupported = MSI_Off
 												// Grey, as the box opens for devices whose MSI
@@ -322,7 +322,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 												Value:              Bind("device.MessageNumberLimit"),
 												ToolTipText:        limitToolTip,
 												OnValueChanged: func() {
-													device.MessageNumberLimit = uint32(deviceMessageNumberLimitNE.Value())
+													device.MessageNumberLimit = boxLimit(deviceMessageNumberLimitNE.Value())
 												},
 											},
 										},

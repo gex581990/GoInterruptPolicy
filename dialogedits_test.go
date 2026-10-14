@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -558,6 +559,16 @@ func TestLimitTaken(t *testing.T) {
 		}
 		if got, want := limitTaken(limit, msiX), limit <= 2048; got != want {
 			t.Errorf("limit %d with MSI-X: got %v, want %v", limit, got, want)
+		}
+	}
+}
+
+// The limit box shows its value with no decimals, which strconv rounds half
+// to even, and the limit is the number it shows.
+func TestBoxLimitIsTheNumberTheBoxShows(t *testing.T) {
+	for _, v := range []float64{0, 0.25, 0.5, 0.75, 1.5, 2.5, 7.5, 7.9, 8.5, 15.6, 2047.5, 2048} {
+		if got, want := strconv.FormatUint(uint64(boxLimit(v)), 10), strconv.FormatFloat(v, 'f', 0, 64); got != want {
+			t.Errorf("boxLimit(%v) = %s, the box shows %s", v, got, want)
 		}
 	}
 }
