@@ -125,7 +125,21 @@ func captionWndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			// window again, not how. SW_SHOWNA is documented to show a window
 			// at the size and position it has, so it comes back still
 			// maximized or snapped, and it leaves activation to Windows.
-			win.ShowWindow(hwnd, win.SW_SHOWNA)
+			//
+			// Except for a dialog that is minimized itself, by any way that
+			// does not go through the minimize button above: shown as it is,
+			// that is a stub of a title bar with no taskbar button. It is
+			// restored instead with SW_SHOWNOACTIVATE, which Microsoft
+			// documents as similar to SW_SHOWNORMAL but without activating the
+			// window. One minimized while it was maximized may come back at
+			// its normal size rather than maximized, which is still a window
+			// to use. A window is never minimized and maximized or snapped at
+			// once, so those still come back as they were.
+			if win.IsIconic(hwnd) {
+				win.ShowWindow(hwnd, win.SW_SHOWNOACTIVATE)
+			} else {
+				win.ShowWindow(hwnd, win.SW_SHOWNA)
+			}
 			return 0
 		}
 
