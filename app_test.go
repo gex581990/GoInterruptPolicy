@@ -16,6 +16,17 @@ func TestCLIRefusals(t *testing.T) {
 	noMSI := Device{MsiSupported: MSI_Invalid}
 	// MSISupported 2, which no tool should write, with a limit stored.
 	oddMSI := Device{MsiSupported: 2, MessageNumberLimit: 4}
+	msiX := Device{InterruptTypeMap: 0b111, MsiSupported: MSI_On}
+	// Values Windows does not document, as another tool could have stored.
+	oddPolicy := Device{DevicePolicy: 7, MsiSupported: MSI_Off}
+	oddPriority := Device{DevicePolicy: IrqPolicyAllCloseProcessors, DevicePriority: 9, MsiSupported: MSI_Off}
+	limit3Off := Device{InterruptTypeMap: 0b011, MsiSupported: MSI_Off, MessageNumberLimit: 3}
+	limit3On := Device{InterruptTypeMap: 0b011, DevicePolicy: IrqPolicyAllCloseProcessors, MsiSupported: MSI_On, MessageNumberLimit: 3}
+	limit2049Off := Device{InterruptTypeMap: 0b111, MsiSupported: MSI_Off, MessageNumberLimit: 2049}
+	// Processors 8 and 9, which this machine of 8 lacks, alone and beside
+	// processor 0.
+	lacking := Device{DevicePolicy: IrqPolicySpecifiedProcessors, AssignmentSetOverride: 0b11 << 8, MsiSupported: MSI_Off}
+	mixed := Device{DevicePolicy: IrqPolicySpecifiedProcessors, AssignmentSetOverride: 0b11<<8 | 0b1, MsiSupported: MSI_Off}
 
 	// ask is a request with every flag left out but those set by edit.
 	ask := func(edit func(r *cliRequest)) cliRequest {
@@ -72,8 +83,46 @@ func TestCLIRefusals(t *testing.T) {
 		{name: "a negative -msilimit", dev: onTwo, req: ask(func(r *cliRequest) { r.limit = -5 }), says: "-msilimit -5"},
 		{name: "a -msilimit no DWORD holds", dev: onTwo, req: ask(func(r *cliRequest) { r.limit = 1 << 32 }), says: "-msilimit 4294967296"},
 		{name: "a -policy no DWORD holds", dev: onNone, req: ask(func(r *cliRequest) { r.policy = 1<<32 + 4 }), says: "-policy 4294967300"},
-		{name: "the largest DWORD", dev: onTwo, req: ask(func(r *cliRequest) { r.limit = 1<<32 - 1 })},
+		{name: "the largest DWORD as an MSI-X limit", dev: msiX, req: ask(func(r *cliRequest) { r.limit = 1<<32 - 1 }), says: "-msilimit 4294967295: it takes a number from 0 to 2048"},
 		{name: "-msisupported 2", dev: onTwo, req: ask(func(r *cliRequest) { r.msi = 2 }), says: "-msisupported 2"},
+
+		// What Windows documents: policies 0 to 5, priorities 0 to 3, and an
+		// MSI limit of 1, 2, 4, 8 or 16, or up to 2048 for MSI-X.
+		{name: "-policy 5", dev: onNone, req: ask(func(r *cliRequest) { r.policy = 5 })},
+		{name: "-policy 6", dev: onNone, req: ask(func(r *cliRequest) { r.policy = 6 }), says: "-policy 6: it takes a number from 0 to 5"},
+		{name: "-priority 3", dev: onNone, req: ask(func(r *cliRequest) { r.priority = 3 })},
+		{name: "-priority 4", dev: onNone, req: ask(func(r *cliRequest) { r.priority = 4 }), says: "-priority 4: it takes a number from 0 to 3"},
+		{name: "-msilimit 3 without MSI-X", dev: onTwo, req: ask(func(r *cliRequest) { r.limit = 3 }), says: "-msilimit 3: a device without MSI-X takes 1, 2, 4, 8 or 16"},
+		{name: "-msilimit 16 without MSI-X", dev: onTwo, req: ask(func(r *cliRequest) { r.limit = 16 })},
+		{name: "-msilimit 3 with MSI-X", dev: msiX, req: ask(func(r *cliRequest) { r.limit = 3 })},
+		{name: "-msilimit 2048 with MSI-X", dev: msiX, req: ask(func(r *cliRequest) { r.limit = 2048 })},
+		{name: "-msilimit 2049 with MSI-X", dev: msiX, req: ask(func(r *cliRequest) { r.limit = 2049 }), says: "-msilimit 2049: it takes a number from 0 to 2048"},
+		{name: "-msisupported 1 over an MSI-X limit of 2049", dev: limit2049Off, req: ask(func(r *cliRequest) { r.msi = 1 }), says: "the device's MSI limit is 2049, and an MSI-X device takes up to 2048"},
+		{name: "-msisupported 1 over a limit of 3", dev: limit3Off, req: ask(func(r *cliRequest) { r.msi = 1 }), says: "the device's MSI limit is 3"},
+		{name: "-msisupported 1 -msilimit 4 over a limit of 3", dev: limit3Off, req: ask(func(r *cliRequest) { r.msi, r.limit = 1, 4 })},
+		{name: "-msisupported 0 over a limit of 3", dev: limit3Off, req: ask(func(r *cliRequest) { r.msi = 0 })},
+		// MSI already on writes nothing, its limit included.
+		{name: "-msisupported 1 with MSI on and a limit of 3", dev: limit3On, req: ask(func(r *cliRequest) { r.msi = 1 })},
+		{name: "-msisupported 0 with MSI on and a limit of 3", dev: limit3On, req: ask(func(r *cliRequest) { r.msi = 0 })},
+		{name: "-msilimit 3 with MSI on and a limit of 3", dev: limit3On, req: ask(func(r *cliRequest) { r.limit = 3 }), says: "-msilimit 3: a device without MSI-X takes 1, 2, 4, 8 or 16"},
+		{name: "-policy on a device whose MSI limit Windows does not define", dev: limit3On, req: ask(func(r *cliRequest) { r.policy = 3 })},
+		{name: "-priority on a device whose policy Windows does not define", dev: oddPolicy, req: ask(func(r *cliRequest) { r.priority = 2 }), says: "the device's DevicePolicy is 7"},
+		{name: "-policy over a policy Windows does not define", dev: oddPolicy, req: ask(func(r *cliRequest) { r.policy = 1 })},
+		{name: "-msisupported on a device whose policy Windows does not define", dev: oddPolicy, req: ask(func(r *cliRequest) { r.msi = 1 })},
+		{name: "-policy on a device whose priority Windows does not define", dev: oddPriority, req: ask(func(r *cliRequest) { r.policy = 3 }), says: "the device's DevicePriority is 9"},
+		{name: "-priority over a priority Windows does not define", dev: oddPriority, req: ask(func(r *cliRequest) { r.priority = 1 })},
+		{name: "-msisupported on a device whose priority Windows does not define", dev: oddPriority, req: ask(func(r *cliRequest) { r.msi = 1 })},
+		// The policy it has already: nothing is written.
+		{name: "-policy 1 on a device on policy 1 whose priority Windows does not define", dev: oddPriority, req: ask(func(r *cliRequest) { r.policy = 1 })},
+		{name: "-priority 0 on a device with priority 0 whose policy Windows does not define", dev: oddPolicy, req: ask(func(r *cliRequest) { r.priority = 0 })},
+
+		{name: "-priority on a device with only processors this machine lacks", dev: lacking, req: ask(func(r *cliRequest) { r.priority = 2 }), says: "with no processor this machine has: add -cpu, or a -policy other than 4"},
+		{name: "-cpu on a device with only processors this machine lacks", dev: lacking, req: ask(func(r *cliRequest) { r.cpu = 0b0001 })},
+		{name: "-priority on a device with processors this machine lacks", dev: mixed, req: ask(func(r *cliRequest) { r.priority = 2 }), says: "the device's mask names processors this machine does not have: add -cpu, or a -policy other than 4"},
+		{name: "-policy 4 -priority on a device with processors this machine lacks", dev: mixed, req: ask(func(r *cliRequest) { r.policy, r.priority = 4, 2 }), says: "-policy 4: the device's mask names processors this machine does not have: add -cpu"},
+		{name: "-cpu on a device with processors this machine lacks", dev: mixed, req: ask(func(r *cliRequest) { r.cpu = 0b0001 })},
+		{name: "-policy 4 on a device on policy 4 with processors this machine lacks", dev: mixed, req: ask(func(r *cliRequest) { r.policy = 4 })},
+		{name: "-policy 1 on a device with processors this machine lacks", dev: mixed, req: ask(func(r *cliRequest) { r.policy = 1 })},
 	}
 
 	for _, tt := range tests {

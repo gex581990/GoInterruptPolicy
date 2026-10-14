@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"slices"
 	"sort"
@@ -544,23 +543,26 @@ type cliRequest struct {
 // name.
 //
 // Each of these used to be written anyway, as something the user did not ask
-// for. A number below 0, or above what a registry DWORD holds, went to the
-// registry wrapped round, and an -msisupported other than 0 or 1 wrote nothing.
-// A -cpu naming processors this machine cannot address wrote the rest of them,
-// or none. A policy of specified
-// processors with no processor went to the registry as such, although the
-// dialog refuses it. And a limit with MSI not on, or processors with any other
-// policy, is a setting the registry code drops for the state the device ends
-// in, deleting the MSI key, or the processors value, in its place, and that
-// counted as a change for -restart-on-change.
+// for or Microsoft does not document. A number below 0, or above what a
+// registry DWORD holds, went to the registry wrapped round, and an
+// -msisupported other than 0 or 1 wrote nothing. A -cpu naming processors this
+// machine cannot address wrote the rest of them, or none. A policy of
+// specified processors with no processor went to the registry as such,
+// although the dialog refuses it. A limit with MSI not on, or processors with
+// any other policy, is a setting the registry code drops for the state the
+// device ends in, deleting the MSI key, or the processors value, in its place,
+// and that counted as a change for -restart-on-change. And a policy, priority
+// or MSI limit Microsoft does not document was written as given, as was one
+// the device already had when its key was written again.
 func cliRefusals(dev *Device, req cliRequest, threads int) []string {
 	var refused []string
 	for _, flag := range []struct {
 		name  string
 		value int
-	}{{"-policy", req.policy}, {"-priority", req.priority}, {"-msilimit", req.limit}} {
-		if flag.value < -1 || flag.value > math.MaxUint32 {
-			refused = append(refused, fmt.Sprintf("%s %d: it takes a number from 0 to %d", flag.name, flag.value, uint32(math.MaxUint32)))
+		most  int
+	}{{"-policy", req.policy, IrqPolicySpreadMessagesAcrossAllProcessors}, {"-priority", req.priority, IrqPriorityHigh}, {"-msilimit", req.limit, 2048}} {
+		if flag.value < -1 || flag.value > flag.most {
+			refused = append(refused, fmt.Sprintf("%s %d: it takes a number from 0 to %d", flag.name, flag.value, flag.most))
 		}
 	}
 	if req.msi < -1 || req.msi > 1 {
@@ -575,12 +577,19 @@ func cliRefusals(dev *Device, req cliRequest, threads int) []string {
 		return refused
 	}
 
-	policy, msi, mask := dev.DevicePolicy, dev.MsiSupported, dev.AssignmentSetOverride
+	policy, priority, mask := dev.DevicePolicy, dev.DevicePriority, dev.AssignmentSetOverride
+	msi, limit := dev.MsiSupported, dev.MessageNumberLimit
 	if req.policy != -1 {
 		policy = uint32(req.policy)
 	}
+	if req.priority != -1 {
+		priority = uint32(req.priority)
+	}
 	if req.msi != -1 {
 		msi = uint32(req.msi)
+	}
+	if req.limit != -1 {
+		limit = uint32(req.limit)
 	}
 	if req.cpu != ZeroBit {
 		mask = req.cpu
@@ -616,13 +625,52 @@ func cliRefusals(dev *Device, req cliRequest, threads int) []string {
 	// already has and so would not write: a device left on specified
 	// processors with none is refused any of them rather than passed over. A
 	// run with none of them, such as one that changes only MSI, leaves the
-	// policy as it is.
+	// policy as it is. A mask of only processors this machine does not have
+	// counts as none: -cpu cannot name one, but the device's own mask can.
+	absent := absentProcessors(threads)
 	writesAffinity := req.policy != -1 || req.priority != -1 || req.cpu != ZeroBit
-	if writesAffinity && policy == IrqPolicySpecifiedProcessors && mask == ZeroBit {
+	if writesAffinity && policy == IrqPolicySpecifiedProcessors && mask&^absent == ZeroBit {
 		if req.policy == IrqPolicySpecifiedProcessors {
 			refused = append(refused, "-policy 4 needs at least one processor: add -cpu")
 		} else {
-			refused = append(refused, "the device is on the specified processors policy with no processor: add -cpu, or a -policy other than 4")
+			refused = append(refused, "the device is on the specified processors policy with no processor this machine has: add -cpu, or a -policy other than 4")
+		}
+	}
+
+	// A value Microsoft does not document that the device already has is
+	// refused when the run writes its key again, which it does whole, and
+	// only then. One given here was refused above, and -cpu replaces the mask
+	// with processors this machine has.
+	rewritesAffinity := policy != dev.DevicePolicy || priority != dev.DevicePriority || mask != dev.AssignmentSetOverride
+	if rewritesAffinity && policy == IrqPolicySpecifiedProcessors && mask&^absent != ZeroBit && mask&absent != ZeroBit {
+		if req.policy == IrqPolicySpecifiedProcessors {
+			refused = append(refused, "-policy 4: the device's mask names processors this machine does not have: add -cpu")
+		} else {
+			refused = append(refused, "the device's mask names processors this machine does not have: add -cpu, or a -policy other than 4")
+		}
+	}
+	if rewritesAffinity && policy > IrqPolicySpreadMessagesAcrossAllProcessors {
+		refused = append(refused, fmt.Sprintf("the device's DevicePolicy is %d, which Microsoft does not document for a device: add -policy", policy))
+	}
+	if rewritesAffinity && priority > IrqPriorityHigh {
+		refused = append(refused, fmt.Sprintf("the device's DevicePriority is %d, which Microsoft does not document: add -priority", priority))
+	}
+
+	// MSI on writes the limit with it, the device's own when -msilimit is not
+	// given, but only when it turns MSI on: -msisupported 1 for a device
+	// already on writes nothing. A limit given with -msilimit is checked
+	// always. Microsoft documents 1, 2, 4, 8 or 16 for MSI and up to 2048 for
+	// MSI-X.
+	writesMSI := req.limit != -1 || msi != dev.MsiSupported
+	if writesMSI && msi == MSI_On && !limitTaken(limit, dev.InterruptTypeMap) {
+		takes := "a device without MSI-X takes 1, 2, 4, 8 or 16"
+		if Has(dev.InterruptTypeMap, msiXBit) {
+			takes = "an MSI-X device takes up to 2048"
+		}
+		if req.limit != -1 {
+			refused = append(refused, fmt.Sprintf("-msilimit %d: %s, or 0 for no limit", limit, takes))
+		} else {
+			refused = append(refused, fmt.Sprintf("the device's MSI limit is %d, and %s: add -msilimit", limit, takes))
 		}
 	}
 
