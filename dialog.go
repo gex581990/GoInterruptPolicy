@@ -61,27 +61,38 @@ type CheckBoxList struct {
 	// declarative builder fills these in, which is why they are pointers to
 	// pointers, and setGridRows changes how many columns each one uses.
 	grids []**walk.Composite
+	// columns holds the columns each of grids was declared with. They cannot
+	// be read back from the grid once it is built. After placing a child that
+	// has a grid layout of its own, as every core box has, walk's builder moves
+	// on to the next cell one column too far and one row down, so a grid
+	// declared over two columns comes out of the builder with every box in its
+	// first column. setGridRows puts each box where it belongs.
+	columns []int
 }
 
-// newGrid hands the builder somewhere to record a grid composite and keeps the
-// handle so the columns can be changed later.
-func (c *CheckBoxList) newGrid() **walk.Composite {
+// newGrid hands the builder somewhere to record a grid composite declared with
+// the given columns, and keeps the handle so the columns can be changed later.
+func (c *CheckBoxList) newGrid(columns int) **walk.Composite {
 	holder := new(*walk.Composite)
 	c.grids = append(c.grids, holder)
+	c.columns = append(c.columns, columns)
 
 	return holder
 }
 
-// Grids returns the grid composites the builder actually created.
-func (c *CheckBoxList) Grids() []*walk.Composite {
+// Grids returns the grid composites the builder actually created, and the
+// columns each was declared with.
+func (c *CheckBoxList) Grids() ([]*walk.Composite, []int) {
 	out := make([]*walk.Composite, 0, len(c.grids))
-	for _, holder := range c.grids {
+	columns := make([]int, 0, len(c.grids))
+	for i, holder := range c.grids {
 		if *holder != nil {
 			out = append(out, *holder)
+			columns = append(columns, c.columns[i])
 		}
 	}
 
-	return out
+	return out, columns
 }
 
 func ListDevices(devices []Device) []*ComboBoxIntStruct {
@@ -720,10 +731,12 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 	}
 
 	// Lay the core boxes out for the screen before anything measures the
-	// dialog. One that already fits opens the shape its author drew it, and
-	// only one that does not has its boxes spread out, as far as
-	// maxCoresAcross allows. The font is never made smaller to fit.
-	grids = newCoreGrids(dlg, dialogScroll, coreArea, checkBoxList.Grids())
+	// dialog. One that already fits opens in the shape its author drew, and
+	// only one that does not has its boxes spread over fewer rows, as far as
+	// maxCoresAcross allows. A drawn shape wider than that is narrowed to it.
+	// The font is never made smaller to fit.
+	coreGridList, declaredColumns := checkBoxList.Grids()
+	grids = newCoreGrids(dlg, dialogScroll, coreArea, coreGridList, declaredColumns)
 
 	// The one and only time the content is laid out. There is deliberately
 	// nothing watching the window after this: resizing shows more of the
@@ -802,12 +815,13 @@ func (c *CheckBoxList) createEffClass(bits *Bits, effIdx, effLen int, cores [][]
 		c.CoreIndex++
 	}
 
+	columns := mathCeilInInt(len(coreWidgets), cs.CoreGroups[effIdx].Rows)
 	grid := Composite{
-		AssignTo: c.newGrid(),
+		AssignTo: c.newGrid(columns),
 		Layout: Grid{
 			Alignment:   AlignHCenterVCenter,
 			MarginsZero: true,
-			Columns:     mathCeilInInt(len(coreWidgets), cs.CoreGroups[effIdx].Rows),
+			Columns:     columns,
 		},
 		Children: coreWidgets,
 	}

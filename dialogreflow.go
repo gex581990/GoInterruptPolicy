@@ -17,8 +17,8 @@ import (
 // scroll bar made the dialog hardest to read on exactly the machines with the
 // most cores to read through.
 //
-// Adding a column never makes the content narrower and never makes it taller,
-// and the search below leans on that.
+// Taking a row away never makes the content narrower and never makes it
+// taller, and the search below leans on that.
 
 // maxCoresAcross is the most core boxes the dialog will put side by side,
 // counting every grid in the row together, since the grids of each efficiency
@@ -30,59 +30,65 @@ import (
 // scaling.
 const maxCoresAcross = 8
 
-// columnsThatFit returns the fewest columns, from start up to most, whose
-// content fits inside maxWidth by maxHeight, and true. When nothing fits it
-// returns the most columns that at least fit the width, and false, which is
-// the shape that leaves the least of the content to be scrolled to.
+// rowsThatFit returns the most rows, from drawn down to fewest, whose content
+// fits inside maxWidth by maxHeight, and true. When nothing fits it returns
+// the fewest rows that at least fit the width, and false, which is the shape
+// that leaves the least of the content to be scrolled to.
 //
-// start is the shape the dialog was drawn as, and the search never goes below
+// drawn is the shape the dialog was drawn as, and the search never goes above
 // it: that shape came from the topology of the machine, laying the cores of a
 // group out the way they are grouped, and there is nothing to be gained by
-// folding it into a narrower column than its author asked for. The one
-// exception is a most below start, and then most wins: it is the limit on how
-// wide the boxes may go, and that holds whatever they were drawn as.
+// folding them into more rows than their author asked for. The one exception
+// is a fewest above drawn, and then fewest wins: it is the limit on how wide
+// the boxes may go, and that holds whatever they were drawn as.
+//
+// It searches in rows, not in the columns of any one grid, because rows are
+// what the grids share (see setGridRows). The columns of one grid cannot say
+// every row count: a grid of two boxes is two rows over one column or one row
+// over two, so searching in its columns could never reach the three rows a
+// grid of eight beside it was drawn in.
 //
 // Both halves halve their range each time rather than walking it, since each
 // measurement is a layout pass over the real widget tree and a machine of many
 // cores has many counts to choose between.
-func columnsThatFit(start, most, maxWidth, maxHeight int, measure func(columns int) (width, height int)) (int, bool) {
-	if most < 1 {
-		most = 1
+func rowsThatFit(drawn, fewest, maxWidth, maxHeight int, measure func(rows int) (width, height int)) (int, bool) {
+	if fewest < 1 {
+		fewest = 1
 	}
 
-	start = clampInt(start, 1, most)
+	drawn = max(drawn, fewest)
 
-	// The fewest columns short enough for the height. Adding a column never
+	// The most rows short enough for the height. Taking a row away never
 	// makes the content taller, so once one count is short enough every count
-	// above it is too.
-	shortest := most
-	for lo, hi := start, most; lo <= hi; {
+	// below it is too.
+	tallest := fewest
+	for lo, hi := fewest, drawn; lo <= hi; {
 		mid := lo + (hi-lo)/2
 		if _, height := measure(mid); height <= maxHeight {
-			shortest = mid
-			hi = mid - 1
-		} else {
+			tallest = mid
 			lo = mid + 1
+		} else {
+			hi = mid - 1
 		}
 	}
 
-	// Anything narrower than that is too tall and anything wider is wider
+	// Anything with more rows is too tall and anything with fewer is wider
 	// still, so this one count is the only candidate there is.
-	if width, height := measure(shortest); height <= maxHeight && width <= maxWidth {
-		return shortest, true
+	if width, height := measure(tallest); height <= maxHeight && width <= maxWidth {
+		return tallest, true
 	}
 
-	// Nothing fits. Adding a column never makes the content narrower, so the
-	// widest count that at least fits the width is the shortest shape that can
-	// be had without scrolling sideways as well.
-	widest := start
-	for lo, hi := start, most; lo <= hi; {
+	// Nothing fits. Taking a row away never makes the content narrower, so the
+	// fewest rows that at least fit the width is the shortest shape that can be
+	// had without scrolling sideways as well.
+	widest := drawn
+	for lo, hi := fewest, drawn; lo <= hi; {
 		mid := lo + (hi-lo)/2
 		if width, _ := measure(mid); width <= maxWidth {
 			widest = mid
-			lo = mid + 1
-		} else {
 			hi = mid - 1
+		} else {
+			lo = mid + 1
 		}
 	}
 
@@ -161,19 +167,22 @@ func setGridColumns(grid *walk.Composite, columns int) {
 	}
 }
 
-// rowsForColumns is how many rows the first grid has when it is laid out over
-// the given number of columns. It is the first grid that the search picks a
-// column count for, and this is what the other grids follow.
-func rowsForColumns(grids []*walk.Composite, columns int) int {
-	if len(grids) == 0 || columns < 1 {
-		return 1
+// drawnRows is how many rows grids holding counts boxes, laid out over the
+// given columns, were drawn in: the most that any one of them has.
+//
+// Laid out over that many rows, each grid gets back exactly the columns it was
+// drawn with. Each was drawn over the fewest columns that fit its boxes into
+// the rows getLayout chose, and none of them has more rows than this, so no
+// fewer columns would do and no more are needed.
+func drawnRows(counts, columns []int) int {
+	rows := 1
+	for i, count := range counts {
+		if i < len(columns) && columns[i] > 0 {
+			rows = max(rows, mathCeilInInt(count, columns[i]))
+		}
 	}
 
-	if rows := mathCeilInInt(grids[0].Children().Len(), columns); rows > 0 {
-		return rows
-	}
-
-	return 1
+	return rows
 }
 
 // setGridRows lays every grid out over the number of columns that gives it the
@@ -199,7 +208,10 @@ func setGridRows(grids []*walk.Composite, rows int) {
 	}
 }
 
-// gridColumns is how many columns a grid is currently laid out over.
+// gridColumns is how many columns a grid is currently laid out over. It says
+// so only once setGridRows has laid the grid out: straight out of walk's
+// builder, a grid of core boxes sits in cells that do not show its columns
+// (see CheckBoxList.columns).
 func gridColumns(grid *walk.Composite) int {
 	if grid == nil {
 		return 0
@@ -233,32 +245,28 @@ func boxCounts(grids []*walk.Composite) []int {
 	return counts
 }
 
-// mostColumns is the most columns the first grid can be laid out over without
-// the grids, side by side at the row count that gives, coming to more than
-// maxAcross boxes. counts is how many boxes each grid holds, the first grid
-// first. It is never less than one, since a machine with more grids than
-// maxAcross still has to be drawn somehow.
-func mostColumns(counts []int, maxAcross int) int {
+// fewestRows is the fewest rows the grids can be laid out over, each over the
+// columns that gives it, without coming to more than maxAcross boxes side by
+// side. counts is how many boxes each grid holds. A machine with more grids
+// than maxAcross still has to be drawn somehow, and gets every grid in a
+// single column, the narrowest it can be.
+func fewestRows(counts []int, maxAcross int) int {
 	most := 1
-	if len(counts) == 0 {
-		return most
+	for _, count := range counts {
+		most = max(most, count)
 	}
 
-	// More columns means fewer rows, and fewer rows can only mean more boxes
-	// across, so the first count over the limit ends the search.
-	for columns := 1; columns <= counts[0]; columns++ {
-		rows := mathCeilInInt(counts[0], columns)
-
+	// Fewer rows can only mean more boxes across, so the first count within
+	// the limit is the fewest there is.
+	for rows := 1; rows <= most; rows++ {
 		across := 0
 		for _, count := range counts {
 			across += mathCeilInInt(count, rows)
 		}
 
-		if across > maxAcross {
-			break
+		if across <= maxAcross {
+			return rows
 		}
-
-		most = columns
 	}
 
 	return most
@@ -362,15 +370,19 @@ type coreGrids struct {
 	// shares a wider dialog out from.
 	area  *walk.Composite
 	grids []*walk.Composite
-	// columns is the shape the core boxes were drawn as, which came from how
-	// the machine groups them. It is the narrowest shape the search will use,
-	// so a dialog is never folded tighter than its author laid it out.
-	columns int
+	// rows is the shape the core boxes were drawn as, which came from how
+	// the machine groups them, worked out from the columns each grid was
+	// declared with. It is the most rows the search will use, so a dialog is
+	// never folded tighter than its author laid it out, unless that shape is
+	// wider than maxCoresAcross allows, and then fewestRows wins (see
+	// rowsThatFit).
+	rows int
 }
 
-// newCoreGrids takes the dialog as it was drawn, so call it before anything
-// has changed the shape of the core grids.
-func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, area *walk.Composite, grids []*walk.Composite) coreGrids {
+// newCoreGrids takes the dialog as it was drawn. columns is what each of grids
+// was declared with, as CheckBoxList.Grids returns it, since the grids
+// themselves cannot say.
+func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, area *walk.Composite, grids []*walk.Composite, columns []int) coreGrids {
 	c := coreGrids{
 		dlg:    dlg,
 		scroll: scroll,
@@ -378,9 +390,7 @@ func newCoreGrids(dlg *walk.Dialog, scroll *walk.ScrollView, area *walk.Composit
 		grids:  grids,
 	}
 
-	if len(grids) > 0 {
-		c.columns = gridColumns(grids[0])
-	}
+	c.rows = drawnRows(boxCounts(grids), columns)
 
 	return c
 }
@@ -389,11 +399,11 @@ func (c coreGrids) empty() bool {
 	return c.dlg == nil || c.scroll == nil
 }
 
-// apply lays the core boxes out over the given number of columns. It does not
-// ask for a layout, since the search runs this once per shape it tries on and
-// only the last of them is the one to lay out.
-func (c coreGrids) apply(columns int) {
-	setGridRows(c.grids, rowsForColumns(c.grids, columns))
+// apply lays the core boxes out over the given number of rows. It does not ask
+// for a layout, since the search runs this once per shape it tries on and only
+// the last of them is the one to lay out.
+func (c coreGrids) apply(rows int) {
+	setGridRows(c.grids, rows)
 }
 
 // fitDialogAtOpen lays the core boxes out to fit a screen of the given work
@@ -412,38 +422,43 @@ func (c coreGrids) apply(columns int) {
 // the user's hand with no way to drag back to what they had. Done when the
 // content itself changes, it is just the dialog's size.
 func fitDialogAtOpen(c coreGrids, area walk.Size) {
-	if c.empty() || area.Width <= 0 || area.Height <= 0 {
+	if c.empty() {
 		return
 	}
 
-	// What each row count measured, for the length of this search and no
-	// longer. The search asks in columns of the first grid, but the rows those
-	// come to are ceil(boxes / columns), which is many to one: on a machine of
-	// 32 core boxes, the counts the search can ask for are only a handful of
-	// different grids. Keying on the rows is what stops the same grid being
-	// measured over and over. Nothing outside wants these numbers, and a table
-	// that outlived the search would have to be invalidated by hand every time
-	// the dialog changed.
-	measured := map[int]walk.Size{}
+	fewest := fewestRows(boxCounts(c.grids), maxCoresAcross)
 
-	measure := func(columns int) (width, height int) {
-		rows := rowsForColumns(c.grids, columns)
-		if size, ok := measured[rows]; ok {
+	// With no screen to fit, the shape the boxes were drawn in, within the
+	// limit. They still have to be put there: walk's builder does not leave
+	// them in the cells they were declared in (see CheckBoxList.columns).
+	rows := max(c.rows, fewest)
+
+	if area.Width > 0 && area.Height > 0 {
+		// What each row count measured, for the length of this search and no
+		// longer. The search can ask for a count it has measured already, once
+		// in each of its halves, and each measurement is a layout pass.
+		// Nothing outside wants these numbers, and a table that outlived the
+		// search would have to be invalidated by hand every time the dialog
+		// changed.
+		measured := map[int]walk.Size{}
+
+		measure := func(rows int) (width, height int) {
+			if size, ok := measured[rows]; ok {
+				return size.Width, size.Height
+			}
+
+			c.apply(rows)
+
+			size := contentDialogSize(c.dlg, c.scroll)
+			measured[rows] = size
+
 			return size.Width, size.Height
 		}
 
-		c.apply(columns)
-
-		size := contentDialogSize(c.dlg, c.scroll)
-		measured[rows] = size
-
-		return size.Width, size.Height
+		rows, _ = rowsThatFit(c.rows, fewest, area.Width, area.Height, measure)
 	}
 
-	most := mostColumns(boxCounts(c.grids), maxCoresAcross)
-	columns, _ := columnsThatFit(c.columns, most, area.Width, area.Height, measure)
-
-	c.apply(columns)
+	c.apply(rows)
 	balanceCoreWidths(c.grids, c.area)
 
 	// Moving a widget to another cell does not ask for a layout on its own, so

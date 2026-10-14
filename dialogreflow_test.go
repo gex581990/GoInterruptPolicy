@@ -3,93 +3,103 @@ package main
 import "testing"
 
 // fakeContent models what the real measurement reports: a grid of count boxes
-// over n columns, next to content that does not change shape.
-func fakeContent(count, box, spacing, boxHeight, otherWidth, otherHeight int) func(columns int) (int, int) {
-	return func(columns int) (int, int) {
-		if columns < 1 {
-			columns = 1
+// laid out over the given rows, next to content that does not change shape.
+func fakeContent(count, box, spacing, boxHeight, otherWidth, otherHeight int) func(rows int) (int, int) {
+	return fakeGrids([]int{count}, box, spacing, boxHeight, otherWidth, otherHeight)
+}
+
+// fakeGrids is fakeContent for grids side by side, each laid out over the
+// columns the given rows give it, the way setGridRows lays them out.
+func fakeGrids(counts []int, box, spacing, boxHeight, otherWidth, otherHeight int) func(rows int) (int, int) {
+	return func(rows int) (int, int) {
+		if rows < 1 {
+			rows = 1
 		}
 
-		width := columns*box + (columns-1)*spacing
-		if width < otherWidth {
-			width = otherWidth
+		width, tallest := 0, 0
+		for _, count := range counts {
+			columns := mathCeilInInt(count, rows)
+			width += columns*box + (columns-1)*spacing
+			tallest = max(tallest, mathCeilInInt(count, columns))
 		}
+		width += (len(counts) - 1) * spacing
 
-		return width, otherHeight + mathCeilInInt(count, columns)*boxHeight
+		return max(width, otherWidth), otherHeight + tallest*boxHeight
 	}
 }
 
-// The eight core machine this was reported on: three rows of boxes made the
-// dialog taller than the screen.
+// The eight core machine this was reported on, drawn in three rows of three:
+// three rows of boxes made the dialog taller than the screen.
 func reporterContent() func(int) (int, int) {
 	return fakeContent(8, 190, 6, 170, 600, 880)
 }
 
-func TestColumnsThatFitLeavesAFittingShapeAlone(t *testing.T) {
+func TestRowsThatFitLeavesAFittingShapeAlone(t *testing.T) {
 	measure := reporterContent()
 
 	// Plenty of height: the shape it was drawn as already fits, so keep it.
-	if got, ok := columnsThatFit(3, 8, 4000, 4000, measure); got != 3 || !ok {
-		t.Errorf("got %d columns, %v, want the 3 it was drawn as and a fit", got, ok)
+	if got, ok := rowsThatFit(3, 1, 4000, 4000, measure); got != 3 || !ok {
+		t.Errorf("got %d rows, %v, want the 3 it was drawn as and a fit", got, ok)
 	}
 }
 
-func TestColumnsThatFitNeverFoldsTighterThanItWasDrawn(t *testing.T) {
+func TestRowsThatFitNeverFoldsTighterThanItWasDrawn(t *testing.T) {
 	measure := reporterContent()
 
-	// One column fits this easily, but the boxes are laid out the way the
-	// machine groups its cores and there is no reason to fold them tighter.
-	if got, _ := columnsThatFit(3, 8, 4000, 4000, measure); got < 3 {
-		t.Errorf("got %d columns, want no fewer than the 3 it was drawn as", got)
+	// Eight rows of one fit this easily, but the boxes are laid out the way
+	// the machine groups its cores and there is no reason to fold them tighter.
+	if got, _ := rowsThatFit(3, 1, 4000, 4000, measure); got > 3 {
+		t.Errorf("got %d rows, want no more than the 3 it was drawn as", got)
 	}
 }
 
-func TestColumnsThatFitWidensUntilItFits(t *testing.T) {
+func TestRowsThatFitWidensUntilItFits(t *testing.T) {
 	measure := reporterContent()
 
-	// Three columns needs 880 + 3*170 = 1390 of height, which fits.
-	if got, ok := columnsThatFit(3, 8, 4000, 1390, measure); got != 3 || !ok {
-		t.Errorf("got %d columns, %v, at a height of 1390, want 3 and a fit", got, ok)
+	// Three rows needs 880 + 3*170 = 1390 of height, which fits.
+	if got, ok := rowsThatFit(3, 1, 4000, 1390, measure); got != 3 || !ok {
+		t.Errorf("got %d rows, %v, at a height of 1390, want 3 and a fit", got, ok)
 	}
 
 	// 1300 does not fit three rows, but two rows (1220) does.
-	got, ok := columnsThatFit(3, 8, 4000, 1300, measure)
-	if got != 4 || !ok {
-		t.Errorf("got %d columns, %v, at a height of 1300, want 4 and a fit", got, ok)
+	got, ok := rowsThatFit(3, 1, 4000, 1300, measure)
+	if got != 2 || !ok {
+		t.Errorf("got %d rows, %v, at a height of 1300, want 2 and a fit", got, ok)
 	}
 	if _, height := measure(got); height > 1300 {
-		t.Errorf("%d columns still needs %d of height", got, height)
+		t.Errorf("%d rows still needs %d of height", got, height)
 	}
 }
 
-func TestColumnsThatFitWillNotOutgrowTheWidth(t *testing.T) {
+func TestRowsThatFitWillNotOutgrowTheWidth(t *testing.T) {
 	measure := reporterContent()
 
-	// Short screen, so it wants every column it can get, but only 1000 wide.
-	// Five columns needs 5*190 + 4*6 = 974; six needs 1170.
-	got, ok := columnsThatFit(3, 8, 1000, 100, measure)
-	if got != 5 {
-		t.Errorf("got %d columns, want 5, the widest that fits 1000", got)
+	// Short screen, so it wants as few rows as it can get, but only 1000 wide.
+	// One row is eight across, 8*190 + 7*6 = 1562; two rows is four across,
+	// 4*190 + 3*6 = 778.
+	got, ok := rowsThatFit(3, 1, 1000, 100, measure)
+	if got != 2 {
+		t.Errorf("got %d rows, want 2, the fewest that fit 1000", got)
 	}
 	if ok {
 		t.Error("reported a fit on a screen too short for any shape")
 	}
 	if width, _ := measure(got); width > 1000 {
-		t.Errorf("%d columns is %d wide, over the 1000 limit", got, width)
+		t.Errorf("%d rows is %d wide, over the 1000 limit", got, width)
 	}
 }
 
 // A screen too short for the boxes even at the widest they may go gets them at
 // that widest and no wider, and is told they do not fit, so that the rest is
 // left to the scroll bar rather than to a longer, thinner strip of boxes.
-func TestColumnsThatFitStopsAtTheLimitAndLeavesTheRestToScroll(t *testing.T) {
+func TestRowsThatFitStopsAtTheLimitAndLeavesTheRestToScroll(t *testing.T) {
 	measure := reporterContent()
 
-	// Two rows over four columns needs 1220 of height; the screen has 1000,
-	// and eight columns in one row would fit it, but four is the limit.
-	got, ok := columnsThatFit(3, 4, 4000, 1000, measure)
-	if got != 4 {
-		t.Errorf("got %d columns, want the limit of 4", got)
+	// Two rows of four needs 1220 of height and the screen has 1100. One row
+	// of eight would fit it, at 1050, but two rows is the limit.
+	got, ok := rowsThatFit(3, 2, 4000, 1100, measure)
+	if got != 2 {
+		t.Errorf("got %d rows, want the limit of 2", got)
 	}
 	if ok {
 		t.Error("reported a fit for a shape taller than the screen")
@@ -98,28 +108,36 @@ func TestColumnsThatFitStopsAtTheLimitAndLeavesTheRestToScroll(t *testing.T) {
 
 // The limit on how wide the boxes may go holds even against the shape they
 // were drawn as.
-func TestColumnsThatFitKeepsToTheLimitOverTheDrawnShape(t *testing.T) {
+func TestRowsThatFitKeepsToTheLimitOverTheDrawnShape(t *testing.T) {
 	measure := reporterContent()
 
-	if got, ok := columnsThatFit(6, 4, 4000, 4000, measure); got != 4 || !ok {
-		t.Errorf("got %d columns, %v, from a shape drawn over 6 with a limit of 4, want 4 and a fit", got, ok)
+	if got, ok := rowsThatFit(1, 2, 4000, 4000, measure); got != 2 || !ok {
+		t.Errorf("got %d rows, %v, from a shape drawn in 1 with a limit of 2, want 2 and a fit", got, ok)
 	}
 }
 
-// The search relies on the content never getting taller or narrower as columns
-// are added. If that stops holding it can stop at the wrong place.
+// The search relies on the content never getting taller or narrower as rows
+// are taken away. This checks that the stand-in the other tests measure with
+// keeps to that. The real measurement does because walk's grid counts the
+// width of a column, and the height of a row, only when it holds something
+// (gridLayoutItem.MinSizeForSize).
 func TestMeasurementIsMonotonic(t *testing.T) {
-	for _, count := range []int{4, 8, 16, 32, 64} {
-		measure := fakeContent(count, 190, 6, 170, 600, 880)
+	for _, counts := range [][]int{{4}, {8}, {16}, {32}, {64}, {2, 8}, {6, 8, 2}, {8, 16}} {
+		measure := fakeGrids(counts, 190, 6, 170, 600, 880)
 
-		prevWidth, prevHeight := measure(1)
-		for columns := 2; columns <= count; columns++ {
-			width, height := measure(columns)
+		most := 1
+		for _, count := range counts {
+			most = max(most, count)
+		}
+
+		prevWidth, prevHeight := measure(most)
+		for rows := most - 1; rows >= 1; rows-- {
+			width, height := measure(rows)
 			if width < prevWidth {
-				t.Errorf("%d cores: %d columns is narrower than %d columns", count, columns, columns-1)
+				t.Errorf("%v: %d rows is narrower than %d rows", counts, rows, rows+1)
 			}
 			if height > prevHeight {
-				t.Errorf("%d cores: %d columns is taller than %d columns", count, columns, columns-1)
+				t.Errorf("%v: %d rows is taller than %d rows", counts, rows, rows+1)
 			}
 			prevWidth, prevHeight = width, height
 		}
@@ -139,15 +157,15 @@ func TestTheShapeDependsOnlyOnTheScreen(t *testing.T) {
 	first := map[int]int{}
 	for pass := 0; pass < 2; pass++ {
 		for i, screen := range screens {
-			columns, _ := columnsThatFit(3, 8, screen.width, screen.height, measure)
+			rows, _ := rowsThatFit(3, 1, screen.width, screen.height, measure)
 
 			if pass == 0 {
-				first[i] = columns
+				first[i] = rows
 				continue
 			}
 
-			if columns != first[i] {
-				t.Errorf("%dx%d drew over %d columns the first time and %d the second", screen.width, screen.height, first[i], columns)
+			if rows != first[i] {
+				t.Errorf("%dx%d drew in %d rows the first time and %d the second", screen.width, screen.height, first[i], rows)
 			}
 		}
 	}
@@ -155,22 +173,21 @@ func TestTheShapeDependsOnlyOnTheScreen(t *testing.T) {
 
 // Each measurement is a layout pass over the real widget tree, rebuilding the
 // layout items of every core box and thread checkbox in the dialog, so the
-// search has to stay cheap on a machine with a core box for every column it
-// could use.
+// search has to stay cheap on a machine with many row counts to choose from.
 func TestTheSearchStaysCheap(t *testing.T) {
 	measure := fakeContent(32, 190, 6, 170, 600, 880)
 
 	calls := 0
-	counted := func(columns int) (int, int) {
+	counted := func(rows int) (int, int) {
 		calls++
-		return measure(columns)
+		return measure(rows)
 	}
 
 	// Too small for any shape, so both halves of the search run.
-	columnsThatFit(4, 32, 1000, 1000, counted)
+	rowsThatFit(32, 1, 1000, 1000, counted)
 
 	// Both halves halve their range, so this is a handful of measurements
-	// rather than one per column count.
+	// rather than one per row count.
 	if calls > 16 {
 		t.Errorf("the search took %d measurements, want it to halve its ranges", calls)
 	}
@@ -191,7 +208,7 @@ func boxesAcross(counts []int, rows int) int {
 // The limit worked through the fake processors this repository builds, grid by
 // grid in the order the dialog lays them out: the fastest class first, and a
 // grid for each cache group.
-func TestMostColumnsKeepsTheCoresWithinTheLimit(t *testing.T) {
+func TestFewestRowsKeepsTheCoresWithinTheLimit(t *testing.T) {
 	tests := []struct {
 		name   string
 		counts []int
@@ -205,14 +222,17 @@ func TestMostColumnsKeepsTheCoresWithinTheLimit(t *testing.T) {
 		{name: "9950X3D, two cache groups of 8", counts: []int{8, 8}, rows: 2, across: 8},
 		{name: "5900X, two cache groups of 6", counts: []int{6, 6}, rows: 2, across: 6},
 		{name: "64 cores in one grid", counts: []int{64}, rows: 8, across: 8},
+		{name: "6 P-cores and 8 E-cores beside 2 more E-cores", counts: []int{6, 8, 2}, rows: 2, across: 8},
+		// Counted in the columns of the first grid, this could only be two
+		// rows, 9 across, or one; in rows it is three, 7 across.
+		{name: "2 P-cores beside 16 E-cores", counts: []int{2, 16}, rows: 3, across: 7},
 	}
 
 	for _, tt := range tests {
-		most := mostColumns(tt.counts, 8)
-		rows := mathCeilInInt(tt.counts[0], most)
+		rows := fewestRows(tt.counts, 8)
 
 		if rows != tt.rows {
-			t.Errorf("%s: at most %d columns is %d rows, want %d", tt.name, most, rows, tt.rows)
+			t.Errorf("%s: got %d rows, want %d", tt.name, rows, tt.rows)
 		}
 		if across := boxesAcross(tt.counts, rows); across != tt.across {
 			t.Errorf("%s: %d rows is %d across, want %d", tt.name, rows, across, tt.across)
@@ -220,30 +240,32 @@ func TestMostColumnsKeepsTheCoresWithinTheLimit(t *testing.T) {
 	}
 }
 
-// Whatever the grids and the limit, the answer is the widest the first grid can
-// go: at the limit or under it, and one column more is over it.
-func TestMostColumnsIsTheWidestWithinTheLimit(t *testing.T) {
+// Whatever the grids and the limit, the answer is the fewest rows within it:
+// at the limit or under it, and one row fewer is over it.
+func TestFewestRowsIsTheFewestWithinTheLimit(t *testing.T) {
 	for first := 1; first <= 32; first++ {
 		for second := 0; second <= 32; second += 4 {
 			counts := []int{first}
 			if second > 0 {
 				counts = append(counts, second)
 			}
+			most := max(first, second)
 
 			for limit := 1; limit <= 12; limit++ {
-				most := mostColumns(counts, limit)
-				if most < 1 || most > first {
-					t.Fatalf("%v within %d: %d columns, want 1 to %d", counts, limit, most, first)
+				rows := fewestRows(counts, limit)
+				if rows < 1 || rows > most {
+					t.Fatalf("%v within %d: %d rows, want 1 to %d", counts, limit, rows, most)
 				}
 
-				// Over the limit is only allowed when even one column is.
-				if across := boxesAcross(counts, mathCeilInInt(first, most)); across > limit && boxesAcross(counts, first) <= limit {
-					t.Errorf("%v within %d: %d columns comes to %d across", counts, limit, most, across)
+				// Over the limit is only allowed when even a single column
+				// for every grid is.
+				if across := boxesAcross(counts, rows); across > limit && boxesAcross(counts, most) <= limit {
+					t.Errorf("%v within %d: %d rows comes to %d across", counts, limit, rows, across)
 				}
 
-				if most < first {
-					if across := boxesAcross(counts, mathCeilInInt(first, most+1)); across <= limit {
-						t.Errorf("%v within %d: stopped at %d columns, but %d is only %d across", counts, limit, most, most+1, across)
+				if rows > 1 {
+					if across := boxesAcross(counts, rows-1); across <= limit {
+						t.Errorf("%v within %d: stopped at %d rows, but %d is only %d across", counts, limit, rows, rows-1, across)
 					}
 				}
 			}
@@ -252,12 +274,105 @@ func TestMostColumnsIsTheWidestWithinTheLimit(t *testing.T) {
 }
 
 // A machine with more grids than the limit still gets a column for each.
-func TestMostColumnsIsNeverLessThanOne(t *testing.T) {
-	if got := mostColumns([]int{1, 1, 1, 1, 1, 1, 1, 1, 1}, 8); got != 1 {
-		t.Errorf("nine grids of one within 8: got %d columns, want 1", got)
+func TestFewestRowsWithMoreGridsThanTheLimit(t *testing.T) {
+	if got := fewestRows([]int{1, 1, 1, 1, 1, 1, 1, 1, 1}, 8); got != 1 {
+		t.Errorf("nine grids of one within 8: got %d rows, want 1", got)
 	}
-	if got := mostColumns(nil, 8); got != 1 {
-		t.Errorf("no grids: got %d columns, want 1", got)
+	if got := fewestRows([]int{3, 1, 1, 1, 1, 1, 1, 1, 1}, 8); got != 3 {
+		t.Errorf("nine grids within 8: got %d rows, want every grid in one column, 3 rows", got)
+	}
+	if got := fewestRows(nil, 8); got != 1 {
+		t.Errorf("no grids: got %d rows, want 1", got)
+	}
+}
+
+// Laid out over the rows they were drawn in, the grids get back exactly the
+// columns they were drawn with, whatever the row count getLayout chose. That
+// is what lets the search start from the drawn shape.
+func TestDrawnRowsGiveBackTheDrawnColumns(t *testing.T) {
+	for first := 1; first <= 24; first++ {
+		for second := 0; second <= 24; second++ {
+			for third := 0; third <= 4; third += 2 {
+				counts := []int{first}
+				for _, n := range []int{second, third} {
+					if n > 0 {
+						counts = append(counts, n)
+					}
+				}
+
+				for chosen := 1; chosen <= 12; chosen++ {
+					columns := make([]int, len(counts))
+					for i, count := range counts {
+						columns[i] = mathCeilInInt(count, chosen)
+					}
+
+					rows := drawnRows(counts, columns)
+					if rows > chosen {
+						t.Fatalf("%v drawn for %d rows: drawnRows says %d", counts, chosen, rows)
+					}
+					for i, count := range counts {
+						if got := mathCeilInInt(count, rows); got != columns[i] {
+							t.Fatalf("%v drawn for %d rows: grid %d over %d rows is %d columns, drawn as %d", counts, chosen, i, rows, got, columns[i])
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// Each processor drawn the way the dialog draws it: getLayout picks the rows
+// from the threads of each efficiency class, and each grid is declared over
+// the fewest columns that fit its cores into those rows. Starting from the
+// rows those declared columns give, as newCoreGrids does, with room to spare
+// the search keeps every grid exactly as declared.
+func TestTheDrawnShapeOpensWhenItFits(t *testing.T) {
+	tests := []struct {
+		name    string
+		threads []int // per efficiency class, the way getLayout is given them
+		cores   []int // per grid, in the order the dialog lays them out
+	}{
+		// Counted in the P-core grid's single column, a search in columns
+		// could only reach two rows or one, and two put the E-cores in four
+		// columns, not three.
+		{name: "i5-1235U, 2 P-cores and 8 E-cores", threads: []int{8, 4}, cores: []int{2, 8}},
+		// The fake this repository builds. Counted in the P-core grid's two
+		// declared columns, a search in columns could reach three rows or
+		// fewer, never the four the first E-core grid was drawn in.
+		{name: "6 P-cores and 8 E-cores beside 2 more E-cores", threads: []int{10, 12}, cores: []int{6, 8, 2}},
+		{name: "13900, 8 P-cores beside 16 E-cores", threads: []int{16, 16}, cores: []int{8, 16}},
+		{name: "13600KF, 6 P-cores beside 8 E-cores", threads: []int{8, 12}, cores: []int{6, 8}},
+		// Two cache groups each declared over two columns, which walk's
+		// builder leaves with every box in the first, so read back from the
+		// grids this shape would come out as two columns of six.
+		{name: "5900X, two cache groups of 6", threads: []int{24}, cores: []int{6, 6}},
+		{name: "8 cores with hyper-threading", threads: []int{16}, cores: []int{8}},
+	}
+
+	for _, tt := range tests {
+		chosen, _ := getLayout(tt.threads...)
+
+		columns := make([]int, len(tt.cores))
+		for i, count := range tt.cores {
+			columns[i] = mathCeilInInt(count, chosen)
+		}
+
+		drawn := drawnRows(tt.cores, columns)
+		fewest := fewestRows(tt.cores, maxCoresAcross)
+		if fewest > drawn {
+			t.Errorf("%s: drawn %d across, over the limit", tt.name, boxesAcross(tt.cores, drawn))
+			continue
+		}
+
+		rows, ok := rowsThatFit(drawn, fewest, 100000, 100000, fakeGrids(tt.cores, 190, 6, 170, 600, 880))
+		if !ok {
+			t.Errorf("%s: no fit with room to spare", tt.name)
+		}
+		for i, count := range tt.cores {
+			if got := mathCeilInInt(count, rows); got != columns[i] {
+				t.Errorf("%s: grid %d opens in %d columns, drawn in %d", tt.name, i, got, columns[i])
+			}
+		}
 	}
 }
 
@@ -371,8 +486,10 @@ func TestGridMovesNeverLoseABox(t *testing.T) {
 	}
 }
 
-// A freshly built grid has nothing in any cell yet, which is the one case the
-// parking pass has nothing to protect against and still has to get right.
+// A grid with nothing in any cell yet is the one case the parking pass has
+// nothing to protect against, and it still has to get it right. A grid
+// straight out of walk's builder is not that case: see
+// TestGridMovesLayOutAGridFromWalksBuilder.
 func TestGridMovesLayOutAFreshGrid(t *testing.T) {
 	for _, columns := range []int{1, 3, 5, 8} {
 		grid := newWalkGrid()
@@ -382,6 +499,62 @@ func TestGridMovesLayOutAFreshGrid(t *testing.T) {
 			want := [2]int{box % columns, box / columns}
 			if got := grid.laidOut()[box]; got != want {
 				t.Errorf("over %d columns box %d is at %v, want %v", columns, box, got, want)
+			}
+		}
+	}
+}
+
+// builderCells is where walk's declarative builder puts count boxes in a grid
+// declared over columns when each box has a grid layout of its own, as a core
+// box has: after such a box it carries on one column too far and one row down
+// (declarative/builder.go, InitWidget).
+func builderCells(count, columns int) *walkGrid {
+	grid := newWalkGrid()
+
+	row, col := 0, 0
+	for box := 0; box < count; box++ {
+		if col+1 > columns {
+			row++
+			col = 0
+		}
+		grid.run([]gridMove{{box: box, x: col, y: row}})
+
+		row, col = row+1, col+2
+	}
+
+	return grid
+}
+
+// The dialog's first layout starts from the cells walk's builder put the core
+// boxes in, which are not the cells they were declared in. Every box still
+// ends up where it belongs.
+func TestGridMovesLayOutAGridFromWalksBuilder(t *testing.T) {
+	// Declared over two columns, every box lands in the first.
+	for box, cell := range builderCells(4, 2).laidOut() {
+		if cell[0] != 0 {
+			t.Fatalf("box %d of a grid declared over two columns is in column %d, want every box in the first", box, cell[0])
+		}
+	}
+
+	for _, count := range []int{1, 2, 3, 5, 8, 12, 16, 32, 64} {
+		for declared := 1; declared <= count; declared++ {
+			for to := 1; to <= count; to++ {
+				grid := builderCells(count, declared)
+				grid.run(gridMoves(count, to))
+
+				laidOut := grid.laidOut()
+				if len(laidOut) != count {
+					t.Fatalf("%d boxes declared over %d columns, laid out over %d: %d of them are in a cell",
+						count, declared, to, len(laidOut))
+				}
+
+				for box := 0; box < count; box++ {
+					want := [2]int{box % to, box / to}
+					if got := laidOut[box]; got != want {
+						t.Fatalf("%d boxes declared over %d columns, laid out over %d: box %d is at %v, want %v",
+							count, declared, to, box, got, want)
+					}
+				}
 			}
 		}
 	}
