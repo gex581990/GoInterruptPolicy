@@ -40,3 +40,20 @@ func TestEveryMaskTypeDecodesTheSame(t *testing.T) {
 		t.Error("a string taken for a mask")
 	}
 }
+
+// An export names each device's key in the control set Windows is using, so
+// that it still names it once Windows boots another one. Any numbered set
+// does: they reach 010 and beyond after enough Last Known Good boots.
+func TestGeneralizeControlSet(t *testing.T) {
+	for name, want := range map[string]string{
+		`SYSTEM\ControlSet001\Enum\PCI\X\Device Parameters`:              `SYSTEM\CurrentControlSet\Enum\PCI\X\Device Parameters`,
+		`SYSTEM\ControlSet002\Enum\PCI\X\Device Parameters`:              `SYSTEM\CurrentControlSet\Enum\PCI\X\Device Parameters`,
+		`SYSTEM\ControlSet010\Enum\PCI\X\Device Parameters`:              `SYSTEM\CurrentControlSet\Enum\PCI\X\Device Parameters`,
+		`SYSTEM\ControlSet123\Enum\PCI\X\Device Parameters`:              `SYSTEM\CurrentControlSet\Enum\PCI\X\Device Parameters`,
+		`SYSTEM\ControlSet001\Enum\ROOT\ControlSet002\Device Parameters`: `SYSTEM\CurrentControlSet\Enum\ROOT\ControlSet002\Device Parameters`,
+	} {
+		if got := generalizeControlSet(name); got != want {
+			t.Errorf("generalizeControlSet(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

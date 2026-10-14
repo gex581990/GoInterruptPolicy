@@ -183,13 +183,13 @@ func replaceRegistryMachine(regPath string) string {
 	return regPathAfter
 }
 
-// replaces ControlSet00X with CurrentControlSet
+// replaces ControlSetNNN with CurrentControlSet
 func generalizeControlSet(regPath string) string {
 	// https://learn.microsoft.com/en-us/windows-hardware/drivers/install/hklm-system-currentcontrolset-control-registry-tree
 
 	regPathArray := strings.Split(regPath, "\\")
 	for i := 0; i < len(regPathArray); i++ {
-		if strings.HasPrefix(regPathArray[i], "ControlSet00") {
+		if strings.HasPrefix(regPathArray[i], "ControlSet") {
 			regPathArray[i] = "CurrentControlSet"
 			return strings.Join(regPathArray, "\\")
 		}
