@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"slices"
 	"sort"
@@ -42,11 +43,20 @@ func main() {
 		orgItem := *newItem
 
 		var assignmentSetOverride Bits
+		// The -cpu entries that name none of this machine's addressable
+		// processors. Any of them refuses the run: the rest alone are not the
+		// processors asked for.
+		var badCPU []string
 		if flagCPU != "" {
 			for val := range strings.SplitSeq(flagCPU, ",") {
+				// An empty entry, as a trailing comma leaves, names nothing.
+				if val = strings.TrimSpace(val); val == "" {
+					continue
+				}
 				i, err := strconv.Atoi(val)
 				if err != nil {
 					log.Println(err)
+					badCPU = append(badCPU, val)
 					continue
 				}
 				// Against the machine, not against the mask. CPUBits is always
@@ -54,11 +64,28 @@ func main() {
 				// checking it only catches a processor number no mask could
 				// hold and lets through one this machine does not have.
 				if i < 0 || i >= cs.Threads {
-					log.Printf("-cpu %d is not one of this machine's %d addressable processors", i, cs.Threads)
+					badCPU = append(badCPU, val)
 					continue
 				}
 				assignmentSetOverride = Set(assignmentSetOverride, CPUBits[i])
 			}
+		}
+
+		// Refused before anything is written, so a refused run changes nothing.
+		request := cliRequest{
+			policy:   flagDevicePolicy,
+			priority: flagDevicePriority,
+			msi:      flagMsiSupported,
+			limit:    flagMessageNumberLimit,
+			cpu:      assignmentSetOverride,
+			badCPU:   badCPU,
+		}
+		if refused := cliRefusals(newItem, request, cs.Threads); len(refused) != 0 {
+			for _, reason := range refused {
+				log.Println(reason)
+			}
+			SetupDiDestroyDeviceInfoList(handle)
+			os.Exit(1)
 		}
 
 		// Whether anything was written, as the setters report it, the way
@@ -501,6 +528,105 @@ func main() {
 	mw.Show()
 	mw.tv.SetFocus()
 	mw.Run()
+}
+
+// cliRequest is what the command line asks to write. A flag that was not
+// given is -1.
+type cliRequest struct {
+	policy, priority, msi, limit int
+
+	cpu    Bits     // the processors -cpu named that this machine has
+	badCPU []string // the -cpu entries that name none of them
+}
+
+// cliRefusals says why the command line cannot write to dev what req asks, if
+// it cannot. threads is how many processors this machine has that a mask can
+// name.
+//
+// Each of these used to be written anyway, as something the user did not ask
+// for. A number below 0, or above what a registry DWORD holds, went to the
+// registry wrapped round, and an -msisupported other than 0 or 1 wrote nothing.
+// A -cpu naming processors this machine cannot address wrote the rest of them,
+// or none. A policy of specified
+// processors with no processor went to the registry as such, although the
+// dialog refuses it. And a limit with MSI not on, or processors with any other
+// policy, is a setting the registry code drops for the state the device ends
+// in, deleting the MSI key, or the processors value, in its place, and that
+// counted as a change for -restart-on-change.
+func cliRefusals(dev *Device, req cliRequest, threads int) []string {
+	var refused []string
+	for _, flag := range []struct {
+		name  string
+		value int
+	}{{"-policy", req.policy}, {"-priority", req.priority}, {"-msilimit", req.limit}} {
+		if flag.value < -1 || flag.value > math.MaxUint32 {
+			refused = append(refused, fmt.Sprintf("%s %d: it takes a number from 0 to %d", flag.name, flag.value, uint32(math.MaxUint32)))
+		}
+	}
+	if req.msi < -1 || req.msi > 1 {
+		refused = append(refused, fmt.Sprintf("-msisupported %d: it takes 0 for off or 1 for on", req.msi))
+	}
+	if len(req.badCPU) != 0 {
+		refused = append(refused, fmt.Sprintf("-cpu %s: this machine's addressable processors are 0 to %d", strings.Join(req.badCPU, ","), threads-1))
+	}
+
+	// The rules below read the flags as settings, which these are not.
+	if len(refused) != 0 {
+		return refused
+	}
+
+	policy, msi, mask := dev.DevicePolicy, dev.MsiSupported, dev.AssignmentSetOverride
+	if req.policy != -1 {
+		policy = uint32(req.policy)
+	}
+	if req.msi != -1 {
+		msi = uint32(req.msi)
+	}
+	if req.cpu != ZeroBit {
+		mask = req.cpu
+	}
+
+	// A limit of 0 is no limit, which MSI off (0) leaves too. A device whose
+	// MSISupported holds anything but 0 or 1, written by some other tool, gets
+	// no MSI write at all from the registry code, so its stored limit would
+	// stay as it is.
+	if req.limit == 0 && msi != MSI_On && msi != MSI_Off && dev.MessageNumberLimit != 0 {
+		refused = append(refused, fmt.Sprintf("-msilimit 0: the device's MSISupported is %d, which this program does not write: add -msisupported 0 or 1", msi))
+	}
+	if req.limit > 0 && msi != MSI_On {
+		switch {
+		case req.msi == 0:
+			refused = append(refused, "-msilimit needs MSI on, and -msisupported 0 turns it off")
+		case msi == MSI_Invalid:
+			refused = append(refused, "-msilimit: the device reports no interrupt types, so it has no MSI settings here to limit")
+		default:
+			refused = append(refused, "-msilimit needs MSI on: add -msisupported 1")
+		}
+	}
+
+	if req.cpu != ZeroBit && policy != IrqPolicySpecifiedProcessors {
+		if req.policy != -1 {
+			refused = append(refused, fmt.Sprintf("-cpu needs -policy 4, not -policy %d", req.policy))
+		} else {
+			refused = append(refused, "-cpu needs the specified processors policy: add -policy 4")
+		}
+	}
+
+	// Only when -policy, -priority or -cpu is given, even one the device
+	// already has and so would not write: a device left on specified
+	// processors with none is refused any of them rather than passed over. A
+	// run with none of them, such as one that changes only MSI, leaves the
+	// policy as it is.
+	writesAffinity := req.policy != -1 || req.priority != -1 || req.cpu != ZeroBit
+	if writesAffinity && policy == IrqPolicySpecifiedProcessors && mask == ZeroBit {
+		if req.policy == IrqPolicySpecifiedProcessors {
+			refused = append(refused, "-policy 4 needs at least one processor: add -cpu")
+		} else {
+			refused = append(refused, "the device is on the specified processors policy with no processor: add -cpu, or a -policy other than 4")
+		}
+	}
+
+	return refused
 }
 
 type MyMainWindow struct {
