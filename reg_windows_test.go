@@ -96,3 +96,49 @@ func TestGetDWORDuint32ValueReadsOnlyADword(t *testing.T) {
 		}
 	}
 }
+
+// MSI off deletes the device's MSI key, its limit with it, and the device
+// forgets the limit too: kept, it was written back when MSI went on again in
+// the same run. Also with no key to delete, which returns early.
+func TestSetMSIModeOffForgetsTheLimit(t *testing.T) {
+	path := fmt.Sprintf(`Software\GoInterruptPolicyTest%016x`, rand.Uint64())
+
+	key, existing, err := registry.CreateKey(registry.CURRENT_USER, path, registry.ALL_ACCESS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if existing {
+		key.Close()
+		t.Fatalf("%s is already there, and is not this test's to delete", path)
+	}
+	defer func() {
+		key.Close()
+		for _, sub := range []string{`\Interrupt Management\MessageSignaledInterruptProperties`, `\Interrupt Management`, ""} {
+			if err := registry.DeleteKey(registry.CURRENT_USER, path+sub); err != nil && err != registry.ErrNotExist {
+				t.Error(err)
+			}
+		}
+	}()
+
+	d := Device{reg: key, MsiSupported: MSI_On, MessageNumberLimit: 8}
+	d.setMSIMode(&Device{MsiSupported: MSI_Off})
+	if d.MessageNumberLimit != 0 {
+		t.Errorf("with no key: limit %d kept after MSI off", d.MessageNumberLimit)
+	}
+
+	d.setMSIMode(&Device{MsiSupported: MSI_On, MessageNumberLimit: 8})
+	d.setMSIMode(&Device{MsiSupported: MSI_Off})
+	if d.MessageNumberLimit != 0 {
+		t.Errorf("limit %d kept after MSI off", d.MessageNumberLimit)
+	}
+
+	d.setMSIMode(&Device{MsiSupported: MSI_On, MessageNumberLimit: d.MessageNumberLimit})
+	msi, err := registry.OpenKey(key, `Interrupt Management\MessageSignaledInterruptProperties`, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer msi.Close()
+	if _, _, err := msi.GetIntegerValue("MessageNumberLimit"); err != registry.ErrNotExist {
+		t.Errorf("MSI on again wrote a limit: %v", err)
+	}
+}

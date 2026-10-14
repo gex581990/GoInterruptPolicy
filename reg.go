@@ -77,6 +77,9 @@ func (d *Device) setMSIMode(item *Device) (changed bool) {
 	switch item.MsiSupported {
 	case MSI_Off:
 		d.MsiSupported = MSI_Off
+		// The key goes, and the limit in it. Kept here, it came back when MSI
+		// was turned on again in the same run.
+		d.MessageNumberLimit = 0
 		k, err = registry.OpenKey(d.reg, `Interrupt Management\MessageSignaledInterruptProperties`, registry.ALL_ACCESS)
 		if err != nil {
 			log.Println(err)
