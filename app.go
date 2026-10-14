@@ -146,6 +146,10 @@ func main() {
 	AllDevices := devices
 
 	var LineEditSearch *walk.LineEdit
+	// The row the last right click on the table's rows landed on. A right
+	// click on the column header opens the same menu without changing it.
+	// -1 when there is none to go by.
+	menuRow := -1
 	mw := &MyMainWindow{
 		model: &Model{items: devices},
 		tv:    &walk.TableView{},
@@ -254,13 +258,22 @@ func main() {
 					Action{
 						Text: "&Registry parameters",
 						OnTriggered: func() {
-							// The current row if it is selected, else the first
-							// one that is. The current row is -1 until a row is
-							// clicked and after every search, and a right click
-							// below the rows clears the selection but leaves it,
-							// so it alone cannot be trusted.
-							index := mw.tv.CurrentIndex()
-							if selected := mw.tv.SelectedIndexes(); !slices.Contains(selected, index) {
+							// The row the menu was opened on if it is selected,
+							// else the current row if it is, else the first one
+							// that is. A right click on a row that is already
+							// selected keeps the selection and leaves walk's
+							// current row where it was, so with several rows
+							// selected the current row could be another one. The
+							// current row is -1 at the start and after every
+							// search, and a right click below the rows clears the
+							// selection but leaves it, so it alone cannot be
+							// trusted either.
+							selected := mw.tv.SelectedIndexes()
+							index := menuRow
+							if !slices.Contains(selected, index) {
+								index = mw.tv.CurrentIndex()
+							}
+							if !slices.Contains(selected, index) {
 								if len(selected) == 0 {
 									return
 								}
@@ -273,6 +286,21 @@ func main() {
 				},
 				Model:    mw.model,
 				AssignTo: &mw.tv,
+				// walk reports a click on the table's rows in the
+				// coordinates IndexAt takes. A key press in the table, which a
+				// menu opened from the keyboard follows, forgets the row. walk
+				// reports neither F10 nor a held key's repeats, so Shift+F10
+				// with Shift held down since before the right click still goes
+				// by that row, which is selected and the one last clicked.
+				OnMouseDown: func(x, y int, button walk.MouseButton) {
+					menuRow = -1
+					if button == walk.RightButton {
+						menuRow = mw.tv.IndexAt(x, y)
+					}
+				},
+				OnKeyDown: func(walk.Key) {
+					menuRow = -1
+				},
 				OnKeyUp: func(key walk.Key) {
 					// The rows the table shows, which while a search is shown
 					// are not mw.model's.
