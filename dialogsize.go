@@ -89,14 +89,16 @@ func clampInt(value, lo, hi int) int {
 func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {
 	// A ScrollView with both scrollbars reports a minimum size of zero, so the
 	// layout minimum of the dialog covers everything except the scrolled
-	// content. What that content would need is the ScrollView's ideal size.
+	// content. What that content would need is the ScrollView's ideal size,
+	// measured again where it holds text that wraps (see scrolledContentSize).
 	//
 	// Take it out of the tree just built rather than asking the ScrollView for
 	// it. Building that tree already walked the whole scrolled subtree, every
 	// core box and thread checkbox of it, and kept its minimum as the
 	// ScrollView's ideal size; SizeHint would build the identical subtree a
-	// second time to arrive at the same number. This is the innermost step of
-	// the search that sizes the dialog, so it is worth not paying twice.
+	// second time, and hand back that ideal size without the second
+	// measurement. This is the innermost step of the search that sizes the
+	// dialog, so it is worth not paying twice.
 	items := walk.CreateLayoutItemsForContainer(dlg)
 	client := items.MinSize()
 	content := scrolledContentSize(items, scroll)
@@ -116,21 +118,46 @@ func contentDialogSize(dlg *walk.Dialog, scroll *walk.ScrollView) walk.Size {
 }
 
 // scrolledContentSize is the size the contents of scroll want, read from an
-// already built layout item tree. It falls back to asking the ScrollView
-// directly if it is not a child of the tree it was handed, so the answer cannot
-// depend on where in the dialog the ScrollView is put.
+// already built layout item tree. If scroll is not a child of that tree it
+// builds scroll's own items instead and reads those the same way, so the
+// answer cannot depend on where in the dialog the ScrollView is put.
 func scrolledContentSize(items walk.ContainerLayoutItem, scroll *walk.ScrollView) walk.Size {
+	var item walk.LayoutItem
 	for _, child := range items.Children() {
-		if child.Handle() != scroll.Handle() {
-			continue
+		if child.Handle() == scroll.Handle() {
+			item = child
+			break
 		}
+	}
+	if item == nil {
+		item = walk.CreateLayoutItemsForContainer(scroll)
+	}
 
-		if sizer, ok := child.(walk.IdealSizer); ok {
-			return sizer.IdealSize()
+	sizer, ok := item.(walk.IdealSizer)
+	if !ok {
+		return scroll.SizeHint()
+	}
+
+	size := sizer.IdealSize()
+
+	// That is the content's minimum at the size its composite was last given,
+	// and until the dialog's first layout has been applied it has been given
+	// none. Text that wraps, the processor group note, is then measured at no
+	// width at all, which walk takes as a single unwrapped line, and the
+	// dialog came out lines short of its content. So when the content holds
+	// such text, shown or not, measure it again at its own minimum width, the
+	// narrowest it is ever laid out at. The text wraps the most there, so the
+	// dialog is never short of it. A window made wider than that is taller
+	// than it needs to be by the lines the note then saves.
+	if container, ok := item.(walk.ContainerLayoutItem); ok {
+		if children := container.Children(); len(children) == 1 {
+			if content, ok := children[0].(walk.ContainerLayoutItem); ok && content.HasHeightForWidth() {
+				size = content.MinSizeForSize(size)
+			}
 		}
 	}
 
-	return scroll.SizeHint()
+	return size
 }
 
 // desiredDialogSize returns the outer size dlg needs to show the contents of
