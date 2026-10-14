@@ -92,6 +92,19 @@ func addComma(data string) string {
 	return b.String()
 }
 
+// regFileName is the file name an export offers for a device: its description
+// with spaces made underscores, as before, and so are the characters Windows
+// does not allow in a file name. Real descriptions hold some of them, such as
+// the slashes in "1200/1500 v5/6th Gen".
+func regFileName(desc string) string {
+	return strings.Map(func(r rune) rune {
+		if r < ' ' || strings.ContainsRune(` \/:*?"<>|`, r) {
+			return '_'
+		}
+		return r
+	}, desc) + ".reg"
+}
+
 func saveFileExplorer(owner walk.Form, path, filename, title, filter string) (filePath string, cancel bool, err error) {
 	dlg := new(walk.FileDialog)
 

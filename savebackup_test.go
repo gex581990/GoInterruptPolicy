@@ -157,3 +157,18 @@ func TestRegFileLeavesOutMSIForADeviceWithout(t *testing.T) {
 		t.Errorf("the section does not end on its last value and a blank line:\n%q", section)
 	}
 }
+
+// The name an export offers is the device's description, which can hold
+// characters Windows does not allow in a file name.
+func TestRegFileNameHasOnlyCharactersAFileNameMay(t *testing.T) {
+	for desc, want := range map[string]string{
+		"High Definition Audio Controller": "High_Definition_Audio_Controller.reg",
+		"Intel(R) Xeon(R) E3 - 1200/1500 v5/6th Gen Intel(R) Core(TM) PCIe Controller (x16) - 1901": "Intel(R)_Xeon(R)_E3_-_1200_1500_v5_6th_Gen_Intel(R)_Core(TM)_PCIe_Controller_(x16)_-_1901.reg",
+		`a\b:c*d?e"f<g>h|i`: "a_b_c_d_e_f_g_h_i.reg",
+		"tab\there":         "tab_here.reg",
+	} {
+		if got := regFileName(desc); got != want {
+			t.Errorf("regFileName(%q) = %q, want %q", desc, got, want)
+		}
+	}
+}

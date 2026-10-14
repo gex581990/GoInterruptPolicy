@@ -552,7 +552,7 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 											}
 
 											// NOTE: The file name can be improved.
-											filePath, cancel, err := saveFileExplorer(dlg, path, strings.ReplaceAll(devices[0].DeviceDesc, " ", "_")+".reg", "Save current settings", "Registry File (*.reg)|*.reg")
+											filePath, cancel, err := saveFileExplorer(dlg, path, regFileName(devices[0].DeviceDesc), "Save current settings", "Registry File (*.reg)|*.reg")
 
 											// Both, not either. saveFileExplorer reports a failed
 											// dialog as cancelled as well as failed, and asking only
