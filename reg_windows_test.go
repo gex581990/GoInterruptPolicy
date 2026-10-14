@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows/registry"
@@ -140,5 +141,27 @@ func TestSetMSIModeOffForgetsTheLimit(t *testing.T) {
 	defer msi.Close()
 	if _, _, err := msi.GetIntegerValue("MessageNumberLimit"); err != registry.ErrNotExist {
 		t.Errorf("MSI on again wrote a limit: %v", err)
+	}
+}
+
+// GetRegistryLocation names a key under HKEY_LOCAL_MACHINE in the control set
+// in use, and refuses one anywhere else, which it once named as the root.
+func TestGetRegistryLocation(t *testing.T) {
+	hklm, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control`, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hklm.Close()
+	if got, err := GetRegistryLocation(uintptr(hklm)); err != nil || !strings.EqualFold(got, `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control`) {
+		t.Errorf("got %q, %v", got, err)
+	}
+
+	hkcu, err := registry.OpenKey(registry.CURRENT_USER, `Software`, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hkcu.Close()
+	if got, err := GetRegistryLocation(uintptr(hkcu)); err == nil {
+		t.Errorf("a key under HKEY_CURRENT_USER named %q", got)
 	}
 }

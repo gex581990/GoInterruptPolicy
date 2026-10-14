@@ -77,6 +77,11 @@ func GetRegistryLocation(regHandle uintptr) (string, error) {
 				return "", err
 			}
 			tempRegPath := replaceRegistryMachine(regPath)
+			if tempRegPath == "" {
+				// Not a key HKEY_LOCAL_MACHINE can name, and an export of it
+				// would be one that writes nowhere.
+				return "", fmt.Errorf(`the key is not under \REGISTRY\MACHINE\`)
+			}
 			tempRegPath = generalizeControlSet(tempRegPath)
 
 			return `HKEY_LOCAL_MACHINE\` + tempRegPath, nil
