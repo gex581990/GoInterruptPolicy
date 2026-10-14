@@ -14,15 +14,26 @@ import (
 // 96 dpi units, walk scales it to the dpi of the monitor the dialog is on.
 var dialogMinSize = walk.Size{Width: 400, Height: 300}
 
-// workArea returns the work area, the monitor without the taskbar and other
-// appbars, of the monitor closest to hwnd in native pixels. The zero Rectangle
-// is returned when the monitor cannot be determined.
-func workArea(hwnd win.HWND) walk.Rectangle {
+// monitorInfo is what Windows says about the monitor closest to hwnd, and
+// false when the monitor cannot be determined.
+func monitorInfo(hwnd win.HWND) (win.MONITORINFO, bool) {
 	var mi win.MONITORINFO
 	mi.CbSize = uint32(unsafe.Sizeof(mi))
 
 	monitor := win.MonitorFromWindow(hwnd, win.MONITOR_DEFAULTTONEAREST)
 	if monitor == 0 || !win.GetMonitorInfo(monitor, &mi) {
+		return mi, false
+	}
+
+	return mi, true
+}
+
+// workArea returns the work area, the monitor without the taskbar and other
+// appbars, of the monitor closest to hwnd in native pixels. The zero Rectangle
+// is returned when the monitor cannot be determined.
+func workArea(hwnd win.HWND) walk.Rectangle {
+	mi, ok := monitorInfo(hwnd)
+	if !ok {
 		return walk.Rectangle{}
 	}
 
@@ -342,11 +353,8 @@ func setRestoredSize(hwnd win.HWND, size walk.Size) {
 // show on a second monitor while the main one's taskbar is at its top or left,
 // and then only as the width of that taskbar.
 func workspaceArea(hwnd win.HWND) walk.Rectangle {
-	var mi win.MONITORINFO
-	mi.CbSize = uint32(unsafe.Sizeof(mi))
-
-	monitor := win.MonitorFromWindow(hwnd, win.MONITOR_DEFAULTTONEAREST)
-	if monitor == 0 || !win.GetMonitorInfo(monitor, &mi) {
+	mi, ok := monitorInfo(hwnd)
+	if !ok {
 		return walk.Rectangle{}
 	}
 
