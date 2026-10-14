@@ -523,6 +523,14 @@ func RunDialog(owner walk.Form, devices []Device) (int, []Device, error) {
 									PushButton{
 										Text: "Export current settings",
 										OnClicked: func() {
+											// The check OK makes. A backup of a state OK
+											// refuses would restore exactly that state:
+											// specified processors and none of them to use.
+											if edits.leavesNoProcessor(devices, *device) {
+												walk.MsgBox(dlg, "Invalid Option", "The affinity mask must contain at least one processor.", walk.MsgBoxIconError)
+												return
+											}
+
 											var reg_file_value strings.Builder
 
 											for i := range devices {
